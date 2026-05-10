@@ -4,209 +4,205 @@ AGENT 2 — MUZYK
 Odpowiada za:
 1. Odebranie tekstu piosenki od Agenta 1
 2. Wysłanie do Suno API z odpowiednim promptem stylu
-3. Czekanie na wygenerowanie MP3
-4. Pobranie i zapisanie pliku MP3
-5. Zwrócenie ścieżki do pliku MP3
+3. Polling — sprawdzanie co 10s czy muzyka gotowa
+4. Wgranie MP3 do Supabase Storage (bezpieczne współdzielenie plików)
+5. Zwrócenie publicznego URL do pliku
+
+UWAGA O SUNO API:
+Oficjalne Suno nie udostępnia publicznego API.
+Korzystamy z suno-api (self-hosted wrapper lub usługa zewnętrzna).
+Popularne opcje:
+  - https://github.com/gcui-art/suno-api (self-hosted na Railway)
+  - https://www.sunoapi.pro (zewnętrzna usługa)
+Ustaw SUNO_API_URL w .env na adres swojego wrappera.
 """
 
 import os
 import time
 import requests
+from supabase import create_client
 
-SUNO_API_KEY = os.environ.get("SUNO_API_KEY")
-SUNO_BASE_URL = "https://studio-api.suno.ai/api"
+supabase = create_client(
+    os.environ.get("SUPABASE_URL"),
+    os.environ.get("SUPABASE_SERVICE_KEY"),
+)
+
+# URL do Twojego wrappera Suno — ustaw w .env
+SUNO_API_URL = os.environ.get("SUNO_API_URL", "http://localhost:3000")
+SUNO_API_KEY = os.environ.get("SUNO_API_KEY", "")
 
 # Mapowanie stylów muzycznych na tagi Suno
 STYLE_MAP = {
-    "pop": "polish pop, upbeat, catchy, modern",
-    "ballada": "polish ballad, emotional, piano, slow tempo",
-    "hip-hop": "polish hip hop, rap, boom bap, 95 bpm",
-    "folk": "polish folk, accordion, biesiadna, festive, upbeat 130 bpm",
-    "rock": "polish rock, guitar, energetic, powerful",
-    "jazz": "polish jazz, saxophone, smooth, relaxed",
-    "klasyczna": "classical polish, orchestral, elegant, emotional",
+    "pop":       "polish pop, upbeat, catchy, modern",
+    "ballada":   "polish ballad, emotional, piano, slow tempo",
+    "hip-hop":   "polish hip hop, rap, boom bap, 95 bpm",
+    "folk":      "polish folk, accordion, biesiadna, festive, 130 bpm",
+    "rock":      "polish rock, guitar, energetic, powerful",
+    "jazz":      "polish jazz, saxophone, smooth, relaxed",
+    "klasyczna": "classical, orchestral, elegant, emotional",
+}
+
+OCCASION_MOOD = {
+    "urodziny":  "celebratory, birthday, joyful, happy",
+    "imieniny":  "celebratory, joyful, warm",
+    "ślub":      "romantic, wedding, emotional, love",
+    "rocznica":  "romantic, emotional, nostalgic",
+    "walentynki":"romantic, love song, tender",
+    "absolutorium": "triumphant, proud, celebratory",
 }
 
 
-def get_suno_style(music_style: str, occasion: str) -> str:
-    """
-    Buduje prompt stylu dla Suno na podstawie wybranego stylu i okazji.
-    Suno generuje muzykę na podstawie opisu stylu — im dokładniejszy, tym lepszy efekt.
-    """
-    base_style = STYLE_MAP.get(
-        music_style.lower().split("/")[0].strip(),
-        "polish pop, upbeat, modern"
-    )
+def get_style_prompt(music_style: str, occasion: str, package_type: str) -> str:
+    """Buduje prompt stylu dla Suno."""
+    style_key = music_style.lower().split("/")[0].strip()
+    base = STYLE_MAP.get(style_key, "polish pop, upbeat, modern")
 
-    # Dodajemy nastrój zależny od okazji
-    occasion_lower = occasion.lower()
-    if "urodziny" in occasion_lower or "imieniny" in occasion_lower:
-        mood = "celebratory, birthday, joyful, happy"
-    elif "ślub" in occasion_lower or "rocznica" in occasion_lower:
-        mood = "romantic, emotional, wedding, love"
-    elif "walentynki" in occasion_lower:
-        mood = "romantic, love song, tender"
-    elif "absolutorium" in occasion_lower or "awans" in occasion_lower:
-        mood = "triumphant, celebratory, proud"
-    else:
-        mood = "warm, celebratory, personal"
-
-    return f"{base_style}, {mood}, Polish language vocals, complete song with intro verse chorus outro"
-
-
-def generate_music(song_text: str, order: dict) -> dict:
-    """
-    Wysyła tekst do Suno API i czeka na wygenerowanie muzyki.
-
-    Args:
-        song_text: tekst piosenki od Agenta 1
-        order: dane zamówienia
-
-    Returns:
-        dict: {success, audio_url, song_id, error}
-    """
-    style = get_suno_style(
-        order.get("music_style", "pop"),
-        order.get("occasion", "urodziny")
-    )
+    # Nastrój na podstawie okazji
+    mood = "warm, celebratory, personal"
+    for key, val in OCCASION_MOOD.items():
+        if key in occasion.lower():
+            mood = val
+            break
 
     # Długość zależna od pakietu
-    if order["package_type"] == "premium":
-        duration_hint = "2.5 to 3 minute song, extended version with bridge"
-    else:
-        duration_hint = "2 minute song, complete with verse chorus structure"
+    duration = "2.5 to 3 minute song, verse pre-chorus chorus bridge outro" \
+               if package_type == "premium" else \
+               "2 minute song, verse chorus verse chorus outro"
 
-    full_style = f"{style}, {duration_hint}"
+    return f"{base}, {mood}, {duration}, Polish vocals, high quality"
 
-    print(f"[Agent2] Wysyłam do Suno API...")
-    print(f"[Agent2] Styl: {full_style}")
 
+def generate_and_poll(song_text: str, style: str, title: str) -> dict:
+    """
+    Wysyła tekst do Suno API i odpytuje co 10s aż muzyka będzie gotowa.
+    Zwraca {audio_url, file_extension}.
+    """
     headers = {
-        "Authorization": f"Bearer {SUNO_API_KEY}",
         "Content-Type": "application/json",
+        "Authorization": f"Bearer {SUNO_API_KEY}",
     }
 
     payload = {
         "prompt": song_text,
-        "style": full_style,
-        "title": f"Piosenka dla {order['recipient_name']}",
+        "tags": style,
+        "title": title,
         "make_instrumental": False,
-        "wait_audio": False,  # nie czekamy synchronicznie — polling niżej
+        "wait_audio": False,
     }
 
-    # Wysyłamy żądanie generowania
-    response = requests.post(
-        f"{SUNO_BASE_URL}/generate",
+    print(f"[Agent2] Wysyłam do Suno ({SUNO_API_URL})...")
+    resp = requests.post(
+        f"{SUNO_API_URL}/api/custom_generate",
         json=payload,
         headers=headers,
         timeout=30,
     )
 
-    if response.status_code != 200:
-        raise Exception(f"Suno API error {response.status_code}: {response.text}")
+    if resp.status_code != 200:
+        raise Exception(f"Suno generate error {resp.status_code}: {resp.text}")
 
-    data = response.json()
-    song_ids = [item["id"] for item in data]
-    song_id = song_ids[0]
-    print(f"[Agent2] Suno ID: {song_id} — czekam na generowanie...")
+    data = resp.json()
+    song_id = data[0]["id"] if isinstance(data, list) else data["id"]
+    print(f"[Agent2] ID: {song_id} — polling...")
 
-    # Polling — sprawdzamy co 10 sekund czy muzyka jest gotowa
-    # Suno zazwyczaj generuje w 60-120 sekund
-    audio_url = poll_for_audio(song_id, headers)
-    return {"success": True, "audio_url": audio_url, "song_id": song_id}
-
-
-def poll_for_audio(song_id: str, headers: dict, max_wait: int = 300) -> str:
-    """
-    Odpytuje Suno API co 10 sekund aż muzyka będzie gotowa.
-    Maksymalny czas oczekiwania: 5 minut.
-    """
-    waited = 0
-    while waited < max_wait:
+    # Polling max 5 minut
+    for attempt in range(30):
         time.sleep(10)
-        waited += 10
-
-        response = requests.get(
-            f"{SUNO_BASE_URL}/get?ids={song_id}",
+        poll = requests.get(
+            f"{SUNO_API_URL}/api/get?ids={song_id}",
             headers=headers,
             timeout=30,
         )
-
-        if response.status_code != 200:
-            print(f"[Agent2] Polling error: {response.status_code}")
+        if poll.status_code != 200:
             continue
 
-        data = response.json()
-        if not data:
-            continue
-
-        song = data[0]
-        status = song.get("status", "")
-        print(f"[Agent2] Status: {status} (czekam {waited}s)")
+        items = poll.json()
+        item = items[0] if isinstance(items, list) else items
+        status = item.get("status", "")
+        print(f"[Agent2] Status: {status} ({(attempt+1)*10}s)")
 
         if status == "complete":
-            audio_url = song.get("audio_url")
-            if audio_url:
-                print(f"[Agent2] ✅ Muzyka gotowa!")
-                return audio_url
+            audio_url = item.get("audio_url", "")
+            if not audio_url:
+                raise Exception("Brak audio_url w odpowiedzi Suno")
+            # Sprawdzamy rozszerzenie pliku
+            ext = "mp3"
+            if ".wav" in audio_url.lower():
+                ext = "wav"
+            print(f"[Agent2] ✅ Audio gotowe: {audio_url}")
+            return {"audio_url": audio_url, "ext": ext}
 
-        elif status == "error":
-            raise Exception(f"Suno generation failed: {song.get('error', 'unknown')}")
+        elif status in ("error", "failed"):
+            raise Exception(f"Suno failed: {item.get('error', 'unknown')}")
 
-    raise Exception(f"Timeout — Suno nie wygenerował muzyki w {max_wait}s")
+    raise Exception("Timeout — Suno nie wygenerował w 300s")
 
 
-def download_mp3(audio_url: str, order_id: str) -> str:
+def upload_to_supabase(audio_url: str, order_id: str, ext: str) -> str:
     """
-    Pobiera plik MP3 z Suno i zapisuje lokalnie.
-    Zwraca ścieżkę do zapisanego pliku.
+    Pobiera plik audio i wgrywa go do Supabase Storage.
+    Dzięki temu Agent 3 może go pobrać nawet jeśli działa na innym serwerze.
+    Zwraca publiczny URL pliku.
     """
-    os.makedirs("/tmp/nutanazyczenie", exist_ok=True)
-    filepath = f"/tmp/nutanazyczenie/{order_id}_song.mp3"
+    print(f"[Agent2] Pobieram audio...")
+    resp = requests.get(audio_url, timeout=60)
+    if resp.status_code != 200:
+        raise Exception(f"Nie mogę pobrać audio: {resp.status_code}")
 
-    print(f"[Agent2] Pobieram MP3...")
-    response = requests.get(audio_url, timeout=60)
+    filename = f"{order_id}/song.{ext}"
+    content_type = "audio/mpeg" if ext == "mp3" else "audio/wav"
 
-    if response.status_code != 200:
-        raise Exception(f"Nie mogę pobrać MP3: {response.status_code}")
+    print(f"[Agent2] Wgrywam do Supabase Storage ({filename})...")
+    supabase.storage.from_("orders").upload(
+        path=filename,
+        file=resp.content,
+        file_options={"content-type": content_type},
+    )
 
-    with open(filepath, "wb") as f:
-        f.write(response.content)
-
-    size_kb = len(response.content) // 1024
-    print(f"[Agent2] ✅ MP3 zapisany: {filepath} ({size_kb} KB)")
-    return filepath
+    # Pobieramy publiczny URL
+    public_url = supabase.storage.from_("orders").get_public_url(filename)
+    print(f"[Agent2] ✅ Wgrano: {public_url}")
+    return public_url
 
 
 def run(song_text: str, order: dict) -> dict:
     """
-    Główna funkcja Agenta 2 — uruchamiana przez main.py.
+    Główna funkcja Agenta 2.
 
     Args:
         song_text: tekst piosenki od Agenta 1
         order: dane zamówienia
 
     Returns:
-        dict: {success, mp3_path, audio_url, error}
+        dict: {success, audio_url, ext, error}
     """
     try:
-        # Generujemy muzykę w Suno
-        result = generate_music(song_text, order)
+        style = get_style_prompt(
+            order.get("music_style", "pop"),
+            order.get("occasion", "urodziny"),
+            order["package_type"],
+        )
 
-        # Pobieramy plik MP3 lokalnie
-        mp3_path = download_mp3(result["audio_url"], str(order["id"]))
+        # Generujemy muzykę
+        result = generate_and_poll(
+            song_text,
+            style,
+            f"Piosenka dla {order['recipient_name']}",
+        )
+
+        # Wgrywamy do Supabase Storage
+        public_url = upload_to_supabase(
+            result["audio_url"],
+            str(order["id"]),
+            result["ext"],
+        )
 
         return {
-            "success": True,
-            "mp3_path": mp3_path,
-            "audio_url": result["audio_url"],
+            "success":   True,
+            "audio_url": public_url,
+            "ext":       result["ext"],
         }
 
     except Exception as e:
         print(f"[Agent2] ❌ Błąd: {e}")
-        return {
-            "success": False,
-            "mp3_path": None,
-            "audio_url": None,
-            "error": str(e),
-        }
+        return {"success": False, "audio_url": None, "ext": "mp3", "error": str(e)}

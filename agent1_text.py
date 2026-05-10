@@ -95,7 +95,7 @@ ZASADY:
             {"role": "user", "content": prompt},
         ],
         temperature=0.85,
-        max_tokens=2000,
+        max_tokens=3000,  # 3000 żeby premium (72-92 linijki) nie było ucinane
     )
 
     text = response.choices[0].message.content.strip()
