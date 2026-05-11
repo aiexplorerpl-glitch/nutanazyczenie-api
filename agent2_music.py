@@ -1,20 +1,12 @@
 """
-AGENT 2 — MUZYK
-===============
+AGENT 2 — MUZYK (GoAPI / Suno)
+================================
 Odpowiada za:
 1. Odebranie tekstu piosenki od Agenta 1
-2. Wysłanie do Suno API z odpowiednim promptem stylu
-3. Polling — sprawdzanie co 10s czy muzyka gotowa
-4. Wgranie MP3 do Supabase Storage (bezpieczne współdzielenie plików)
+2. Wysłanie do GoAPI (Suno) z odpowiednim promptem stylu
+3. Polling co 15s aż muzyka będzie gotowa
+4. Wgranie MP3 do Supabase Storage
 5. Zwrócenie publicznego URL do pliku
-
-UWAGA O SUNO API:
-Oficjalne Suno nie udostępnia publicznego API.
-Korzystamy z suno-api (self-hosted wrapper lub usługa zewnętrzna).
-Popularne opcje:
-  - https://github.com/gcui-art/suno-api (self-hosted na Railway)
-  - https://www.sunoapi.pro (zewnętrzna usługa)
-Ustaw SUNO_API_URL w .env na adres swojego wrappera.
 """
 
 import os
@@ -27,11 +19,9 @@ supabase = create_client(
     os.environ.get("SUPABASE_SERVICE_KEY"),
 )
 
-# URL do Twojego wrappera Suno — ustaw w .env
-SUNO_API_URL = os.environ.get("SUNO_API_URL", "http://localhost:3000")
-SUNO_API_KEY = os.environ.get("SUNO_API_KEY", "")
+SUNO_API_KEY   = os.environ.get("SUNO_API_KEY")
+GOAPI_BASE_URL = "https://api.goapi.ai/api/suno/v1/music"
 
-# Mapowanie stylów muzycznych na tagi Suno
 STYLE_MAP = {
     "pop":       "polish pop, upbeat, catchy, modern",
     "ballada":   "polish ballad, emotional, piano, slow tempo",
@@ -43,21 +33,20 @@ STYLE_MAP = {
 }
 
 OCCASION_MOOD = {
-    "urodziny":  "celebratory, birthday, joyful, happy",
-    "imieniny":  "celebratory, joyful, warm",
-    "ślub":      "romantic, wedding, emotional, love",
-    "rocznica":  "romantic, emotional, nostalgic",
-    "walentynki":"romantic, love song, tender",
+    "urodziny":     "celebratory, birthday, joyful, happy",
+    "imieniny":     "celebratory, joyful, warm",
+    "ślub":         "romantic, wedding, emotional, love",
+    "rocznica":     "romantic, emotional, nostalgic",
+    "walentynki":   "romantic, love song, tender",
     "absolutorium": "triumphant, proud, celebratory",
 }
 
 
 def get_style_prompt(music_style: str, occasion: str, package_type: str) -> str:
-    """Buduje prompt stylu dla Suno."""
+    """Buduje prompt stylu dla Suno przez GoAPI."""
     style_key = music_style.lower().split("/")[0].strip()
     base = STYLE_MAP.get(style_key, "polish pop, upbeat, modern")
 
-    # Nastrój na podstawie okazji
     mood = "warm, celebratory, personal"
     for key, val in OCCASION_MOOD.items():
         if key in occasion.lower():
@@ -65,113 +54,121 @@ def get_style_prompt(music_style: str, occasion: str, package_type: str) -> str:
             break
 
     # Długość zależna od pakietu
-    duration = "2.5 to 3 minute song, verse pre-chorus chorus bridge outro" \
-               if package_type == "premium" else \
-               "2 minute song, verse chorus verse chorus outro"
+    if package_type == "premium":
+        duration = "2.5 to 3 minute song, extended with bridge and final chorus"
+    else:
+        duration = "2 minute song, verse chorus verse chorus outro"
 
     return f"{base}, {mood}, {duration}, Polish vocals, high quality"
 
 
 def generate_and_poll(song_text: str, style: str, title: str) -> dict:
     """
-    Wysyła tekst do Suno API i odpytuje co 10s aż muzyka będzie gotowa.
-    Zwraca {audio_url, file_extension}.
+    Wysyła żądanie do GoAPI i odpytuje co 15s aż muzyka będzie gotowa.
+    GoAPI zwraca task_id → polling → clips z audio_url.
     """
     headers = {
+        "X-API-Key": SUNO_API_KEY,
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {SUNO_API_KEY}",
     }
 
     payload = {
-        "prompt": song_text,
-        "tags": style,
-        "title": title,
+        "custom_mode":       True,
+        "prompt":            song_text,
+        "tags":              style,
+        "title":             title,
         "make_instrumental": False,
-        "wait_audio": False,
     }
 
-    print(f"[Agent2] Wysyłam do Suno ({SUNO_API_URL})...")
+    print(f"[Agent2] Wysyłam do GoAPI...")
+    print(f"[Agent2] Styl: {style[:80]}...")
+
     resp = requests.post(
-        f"{SUNO_API_URL}/api/custom_generate",
+        GOAPI_BASE_URL,
         json=payload,
         headers=headers,
         timeout=30,
     )
 
     if resp.status_code != 200:
-        raise Exception(f"Suno generate error {resp.status_code}: {resp.text}")
+        raise Exception(f"GoAPI error {resp.status_code}: {resp.text}")
 
-    data = resp.json()
-    song_id = data[0]["id"] if isinstance(data, list) else data["id"]
-    print(f"[Agent2] ID: {song_id} — polling...")
+    data    = resp.json()
+    task_id = data.get("data", {}).get("task_id")
+    if not task_id:
+        raise Exception(f"GoAPI nie zwróciło task_id: {data}")
 
-    # Polling max 5 minut
-    for attempt in range(30):
-        time.sleep(10)
+    print(f"[Agent2] Task ID: {task_id} — polling co 15s (max 6 min)...")
+
+    # Polling max 6 minut (24 próby × 15s)
+    for attempt in range(24):
+        time.sleep(15)
+        waited = (attempt + 1) * 15
+
         poll = requests.get(
-            f"{SUNO_API_URL}/api/get?ids={song_id}",
+            f"{GOAPI_BASE_URL}/{task_id}",
             headers=headers,
             timeout=30,
         )
+
         if poll.status_code != 200:
+            print(f"[Agent2] Polling error: {poll.status_code} — próba {attempt+1}")
             continue
 
-        items = poll.json()
-        item = items[0] if isinstance(items, list) else items
-        status = item.get("status", "")
-        print(f"[Agent2] Status: {status} ({(attempt+1)*10}s)")
+        task_data = poll.json().get("data", {})
+        status    = task_data.get("status", "")
+        print(f"[Agent2] Status: {status} ({waited}s)")
 
-        if status == "complete":
-            audio_url = item.get("audio_url", "")
-            if not audio_url:
-                raise Exception("Brak audio_url w odpowiedzi Suno")
-            # Sprawdzamy rozszerzenie pliku
-            ext = "mp3"
-            if ".wav" in audio_url.lower():
-                ext = "wav"
-            print(f"[Agent2] ✅ Audio gotowe: {audio_url}")
-            return {"audio_url": audio_url, "ext": ext}
+        if status in ("success", "completed"):
+            clips = task_data.get("clips", {})
+            if clips:
+                first_id  = list(clips.keys())[0]
+                audio_url = clips[first_id].get("audio_url")
+                if audio_url:
+                    print(f"[Agent2] ✅ Audio gotowe!")
+                    # Sprawdzamy format pliku
+                    ext = "wav" if ".wav" in audio_url.lower() else "mp3"
+                    return {"audio_url": audio_url, "ext": ext}
 
-        elif status in ("error", "failed"):
-            raise Exception(f"Suno failed: {item.get('error', 'unknown')}")
+        elif status in ("failed", "error"):
+            raise Exception(f"GoAPI failed: {task_data.get('error', 'unknown')}")
 
-    raise Exception("Timeout — Suno nie wygenerował w 300s")
+    raise Exception("Timeout — GoAPI nie wygenerowało muzyki w 360s")
 
 
 def upload_to_supabase(audio_url: str, order_id: str, ext: str) -> str:
     """
-    Pobiera plik audio i wgrywa go do Supabase Storage.
-    Dzięki temu Agent 3 może go pobrać nawet jeśli działa na innym serwerze.
-    Zwraca publiczny URL pliku.
+    Pobiera plik audio z GoAPI i wgrywa do Supabase Storage.
+    Agent 3 pobierze go stamtąd przez publiczny URL.
     """
-    print(f"[Agent2] Pobieram audio...")
+    print(f"[Agent2] Pobieram audio ({ext.upper()})...")
     resp = requests.get(audio_url, timeout=60)
     if resp.status_code != 200:
         raise Exception(f"Nie mogę pobrać audio: {resp.status_code}")
 
-    filename = f"{order_id}/song.{ext}"
+    filename     = f"{order_id}/song.{ext}"
     content_type = "audio/mpeg" if ext == "mp3" else "audio/wav"
 
-    print(f"[Agent2] Wgrywam do Supabase Storage ({filename})...")
+    print(f"[Agent2] Wgrywam do Supabase Storage...")
     supabase.storage.from_("orders").upload(
         path=filename,
         file=resp.content,
         file_options={"content-type": content_type},
     )
 
-    # Pobieramy publiczny URL
     public_url = supabase.storage.from_("orders").get_public_url(filename)
-    print(f"[Agent2] ✅ Wgrano: {public_url}")
+    size_kb    = len(resp.content) // 1024
+    print(f"[Agent2] ✅ Wgrano ({size_kb} KB): {public_url}")
     return public_url
 
 
 def run(song_text: str, order: dict) -> dict:
     """
-    Główna funkcja Agenta 2.
+    Główna funkcja Agenta 2 — uruchamiana przez main.py.
 
     Args:
         song_text: tekst piosenki od Agenta 1
-        order: dane zamówienia
+        order:     dane zamówienia z Supabase
 
     Returns:
         dict: {success, audio_url, ext, error}
@@ -179,11 +176,11 @@ def run(song_text: str, order: dict) -> dict:
     try:
         style = get_style_prompt(
             order.get("music_style", "pop"),
-            order.get("occasion", "urodziny"),
+            order.get("occasion",    "urodziny"),
             order["package_type"],
         )
 
-        # Generujemy muzykę
+        # Generujemy i czekamy na muzykę
         result = generate_and_poll(
             song_text,
             style,
@@ -205,4 +202,9 @@ def run(song_text: str, order: dict) -> dict:
 
     except Exception as e:
         print(f"[Agent2] ❌ Błąd: {e}")
-        return {"success": False, "audio_url": None, "ext": "mp3", "error": str(e)}
+        return {
+            "success":   False,
+            "audio_url": None,
+            "ext":       "mp3",
+            "error":     str(e),
+        }
