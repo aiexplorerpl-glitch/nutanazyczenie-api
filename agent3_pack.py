@@ -26,8 +26,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 import resend
 from supabase import create_client
 
-resend.api_key = os.environ.get("RESEND_API_KEY")
-FROM_EMAIL = os.environ.get("FROM_EMAIL", "kontakt@nutanazyczenie.pl")
+resend.api_key  = os.environ.get("RESEND_API_KEY")
+FROM_EMAIL      = os.environ.get("FROM_EMAIL",    "zamowienia@nutanazyczenie.pl")
+CONTACT_EMAIL   = os.environ.get("CONTACT_EMAIL", "kontakt@nutanazyczenie.pl")
 
 supabase = create_client(
     os.environ.get("SUPABASE_URL"),
@@ -172,82 +173,135 @@ def upload_pdf(pdf_bytes: bytes, order_id: str) -> str:
     return url
 
 
-def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str):
+def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str, video_url: str = None, poem: str = ""):
     """
     Wysyła email z linkami do pobrania.
-    Zamiast załączników używamy linków — bezpieczniejsze i bez limitów rozmiaru.
+    Zawiera podgląd wiersza inline, info o poprawce i nowe adresy email.
     """
     recipient_email = order.get("recipient_email") or order["buyer_email"]
-    is_direct = bool(order.get("recipient_email"))
+    is_direct       = bool(order.get("recipient_email"))
+    poprawki        = "2 bezpłatne poprawki" if order["package_type"] == "premium" else "1 bezpłatną poprawkę"
 
     if is_direct:
-        subject  = f"Masz wyjatkowy prezent muzyczny od {order['buyer_name']}!"
-        greeting = f"Czesc {order['recipient_name']}!"
+        subject  = f"🎵 Masz wyjątkowy prezent muzyczny od {order['buyer_name']}!"
+        greeting = f"Cześć {order['recipient_name']}! 🎁"
         intro    = (
-            f"{order['buyer_name']} zamowil/a dla Ciebie spersonalizowana "
-            f"piosenke na okazje: <b>{order['occasion']}</b>."
+            f"{order['buyer_name']} zamówił/a dla Ciebie spersonalizowaną "
+            f"piosenkę i wiersz na okazję: <strong>{order['occasion']}</strong> 💛"
         )
     else:
-        subject  = f"Twoj prezent dla {order['recipient_name']} jest gotowy!"
-        greeting = f"Czesc {order['buyer_name']}!"
+        subject  = f"🎵 Twój prezent dla {order['recipient_name']} jest gotowy!"
+        greeting = f"Cześć {order['buyer_name']}! 🎁"
         intro    = (
-            f"Twoja spersonalizowana piosenka dla "
-            f"<b>{order['recipient_name']}</b> jest gotowa!"
+            f"Twoja spersonalizowana piosenka i wiersz dla "
+            f"<strong>{order['recipient_name']}</strong> są gotowe!"
         )
+
+    # Przycisk wideo (tylko dla pakietów wideo/premium)
+    video_btn = ""
+    if video_url:
+        video_btn = f"""
+      <a href="{video_url}"
+         style="display:block;background:#E05C3A;color:white;text-align:center;
+                padding:15px 24px;border-radius:100px;text-decoration:none;
+                font-size:1rem;font-weight:500;margin-bottom:12px;font-family:Arial,sans-serif;">
+        🎬 Obejrzyj film wideo ze zdjęć
+      </a>"""
+
+    # Wiersz wyświetlony inline w emailu
+    poem_lines = poem.strip().split("\n") if poem else []
+    poem_html  = "<br>".join(f"{line.strip()}" for line in poem_lines if line.strip())
+    poem_block = ""
+    if poem_html:
+        poem_block = f"""
+    <div style="background:#FAF6F0;border:1px solid rgba(201,150,58,0.2);
+                border-left:4px solid #C9963A;border-radius:0 12px 12px 0;
+                padding:20px 24px;margin-bottom:24px;">
+      <div style="font-size:0.72rem;color:#C9963A;letter-spacing:2px;
+                  text-transform:uppercase;font-family:Arial,sans-serif;
+                  margin-bottom:12px;font-weight:bold;">
+        📜 Wiersz na życzenie — gratis
+      </div>
+      <p style="margin:0;color:#3D2B1F;font-style:italic;line-height:1.9;font-size:1rem;">
+        {poem_html}
+      </p>
+    </div>"""
 
     html = f"""<!DOCTYPE html>
 <html lang="pl">
 <head><meta charset="UTF-8"></head>
-<body style="font-family:Georgia,serif;background:#FAF6F0;margin:0;padding:0;">
-<div style="max-width:560px;margin:40px auto;background:white;
+<body style="font-family:Georgia,serif;background:#E8E0D8;margin:0;padding:40px 20px;">
+<div style="max-width:560px;margin:0 auto;background:white;
             border-radius:16px;overflow:hidden;
-            box-shadow:0 4px 24px rgba(201,150,58,0.15);">
+            box-shadow:0 4px 24px rgba(0,0,0,0.12);">
 
-  <div style="background:#1A1208;padding:32px;text-align:center;">
-    <div style="font-size:1.8rem;color:#C9963A;font-style:italic;font-weight:bold;">
-      NutaNaZyczenie
+  <div style="background:#1A1208;padding:36px 32px;text-align:center;">
+    <div style="font-size:2rem;color:#C9963A;font-style:italic;font-weight:bold;
+                font-family:Georgia,serif;">
+      🎵 NutaNaŻyczenie
     </div>
-    <div style="font-size:0.8rem;color:rgba(250,246,240,0.5);letter-spacing:2px;">
+    <div style="font-size:0.75rem;color:rgba(250,246,240,0.45);letter-spacing:3px;
+                margin-top:6px;font-family:Arial,sans-serif;">
       MUZYCZNE PREZENTY
     </div>
   </div>
 
-  <div style="padding:36px 32px;">
-    <p style="font-size:1.2rem;color:#1A1208;margin-bottom:16px;">{greeting}</p>
-    <p style="color:#3D2B1F;line-height:1.7;margin-bottom:20px;">{intro}</p>
+  <div style="padding:40px 36px;">
+    <p style="font-size:1.2rem;color:#1A1208;margin:0 0 16px 0;font-weight:bold;">
+      {greeting}
+    </p>
+    <p style="color:#3D2B1F;line-height:1.75;margin:0 0 28px 0;font-size:0.95rem;">
+      {intro}
+    </p>
 
-    <div style="margin:28px 0;">
+    <div style="margin:0 0 28px 0;">
+      {video_btn}
       <a href="{audio_url}"
          style="display:block;background:#C9963A;color:white;text-align:center;
-                padding:14px 24px;border-radius:100px;text-decoration:none;
-                font-size:1rem;font-weight:500;margin-bottom:12px;">
-        Pobierz piosenke (.{audio_ext})
+                padding:15px 24px;border-radius:100px;text-decoration:none;
+                font-size:1rem;font-weight:500;margin-bottom:12px;font-family:Arial,sans-serif;">
+        🎵 Pobierz piosenkę (.{audio_ext})
       </a>
       <a href="{pdf_url}"
          style="display:block;background:transparent;color:#C9963A;text-align:center;
-                padding:14px 24px;border-radius:100px;text-decoration:none;
-                font-size:1rem;border:1.5px solid #C9963A;">
-        Pobierz tekst i wiersz (PDF)
+                padding:15px 24px;border-radius:100px;text-decoration:none;
+                font-size:1rem;border:1.5px solid #C9963A;font-family:Arial,sans-serif;">
+        📜 Pobierz tekst piosenki + wiersz (PDF)
       </a>
     </div>
 
-    <div style="background:#FAF6F0;border-left:4px solid #C9963A;
-                border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:24px;">
-      <p style="margin:0;color:#7A6A5A;font-style:italic;font-size:0.9rem;">
-        Kazda piosenka jest unikalna — stworzona specjalnie dla jednej osoby,
-        na jedna wyjatkowa chwile.
+    {poem_block}
+
+    <div style="background:#F0F8FF;border-radius:12px;padding:16px 20px;margin-bottom:24px;">
+      <p style="margin:0;color:#1565C0;font-size:0.88rem;line-height:1.6;font-family:Arial,sans-serif;">
+        💡 <strong>Masz {poprawki}</strong> — jeśli chcesz zmienić coś
+        w tekście lub muzyce, napisz do nas w ciągu 7 dni.
       </p>
     </div>
 
-    <p style="color:#7A6A5A;font-size:0.85rem;line-height:1.6;">
-      Pytania lub chcesz skorzystac z bezplatnej poprawki?<br>
+    <p style="color:#7A6A5A;font-size:0.85rem;line-height:1.7;
+              font-family:Arial,sans-serif;margin:0;">
+      Pytania lub chcesz skorzystać z poprawki?<br>
       Napisz: <a href="mailto:{FROM_EMAIL}" style="color:#C9963A;">{FROM_EMAIL}</a>
     </p>
   </div>
 
-  <div style="background:#1A1208;padding:20px;text-align:center;">
-    <p style="color:rgba(250,246,240,0.4);font-size:0.75rem;margin:0;">
-      2026 NutaNaZyczenie &nbsp;·&nbsp;
+  <div style="background:#1A1208;padding:24px 32px;text-align:center;">
+    <div style="margin-bottom:10px;">
+      <a href="https://nutanazyczenie.pl/regulamin.html"
+         style="color:rgba(250,246,240,0.4);font-size:0.75rem;text-decoration:none;
+                font-family:Arial,sans-serif;margin:0 8px;">Regulamin</a>
+      <span style="color:rgba(250,246,240,0.2);">·</span>
+      <a href="https://nutanazyczenie.pl/regulamin.html#polityka-prywatnosci"
+         style="color:rgba(250,246,240,0.4);font-size:0.75rem;text-decoration:none;
+                font-family:Arial,sans-serif;margin:0 8px;">Polityka prywatności</a>
+      <span style="color:rgba(250,246,240,0.2);">·</span>
+      <a href="mailto:{CONTACT_EMAIL}"
+         style="color:rgba(250,246,240,0.4);font-size:0.75rem;text-decoration:none;
+                font-family:Arial,sans-serif;margin:0 8px;">Kontakt</a>
+    </div>
+    <p style="color:rgba(250,246,240,0.3);font-size:0.72rem;margin:0;font-family:Arial,sans-serif;">
+      © 2026 NutaNaŻyczenie &nbsp;·&nbsp;
       <a href="https://nutanazyczenie.pl" style="color:#C9963A;">nutanazyczenie.pl</a>
     </p>
   </div>
@@ -255,28 +309,68 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str):
 </body></html>"""
 
     resend.Emails.send({
-        "from":    f"NutaNaZyczenie <{FROM_EMAIL}>",
+        "from":    f"NutaNaŻyczenie <{FROM_EMAIL}>",
         "to":      [recipient_email],
         "subject": subject,
         "html":    html,
     })
-    print(f"[Agent3] Email wysłany do: {recipient_email}")
+    print(f"[Agent3] ✅ Email wysłany do: {recipient_email}")
 
-    # Kopia do zamawiającego jeśli wysyłamy bezpośrednio
+    # Kopia potwierdzenia do zamawiającego
     if is_direct and order["buyer_email"] != recipient_email:
+        confirm_html = f"""<!DOCTYPE html>
+<html lang="pl">
+<head><meta charset="UTF-8"></head>
+<body style="font-family:Georgia,serif;background:#E8E0D8;margin:0;padding:40px 20px;">
+<div style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;
+            box-shadow:0 4px 24px rgba(0,0,0,0.12);">
+  <div style="background:#1A1208;padding:28px;text-align:center;">
+    <div style="font-size:1.8rem;color:#C9963A;font-style:italic;font-weight:bold;
+                font-family:Georgia,serif;">🎵 NutaNaŻyczenie</div>
+  </div>
+  <div style="padding:36px 32px;">
+    <p style="font-size:1.1rem;color:#1A1208;margin:0 0 16px 0;">
+      Cześć {order['buyer_name']}! ✅
+    </p>
+    <p style="color:#3D2B1F;line-height:1.75;margin:0 0 20px 0;">
+      Prezent dla <strong>{order['recipient_name']}</strong>
+      został wysłany bezpośrednio na jej/jego adres email.
+    </p>
+    <div style="background:#F0FFF4;border-left:4px solid #2E7D32;
+                border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:24px;">
+      <p style="margin:0;color:#1B5E20;font-size:0.9rem;line-height:1.8;font-family:Arial,sans-serif;">
+        ✅ Piosenka wygenerowana<br>
+        ✅ Wiersz dołączony<br>
+        {"✅ Film wideo wygenerowany<br>" if video_url else ""}
+        ✅ Email wysłany do {order['recipient_name']}<br>
+        ✅ Zamówienie zrealizowane
+      </p>
+    </div>
+    <p style="color:#7A6A5A;font-size:0.85rem;line-height:1.7;font-family:Arial,sans-serif;margin:0;">
+      Dziękujemy za zaufanie! Mamy nadzieję że {order['recipient_name']} będzie zachwycona/y 💛<br><br>
+      Pytania lub poprawka? Napisz:
+      <a href="mailto:{FROM_EMAIL}" style="color:#C9963A;">{FROM_EMAIL}</a>
+    </p>
+  </div>
+  <div style="background:#1A1208;padding:20px;text-align:center;">
+    <p style="color:rgba(250,246,240,0.3);font-size:0.72rem;margin:0;font-family:Arial,sans-serif;">
+      © 2026 NutaNaŻyczenie &nbsp;·&nbsp;
+      <a href="https://nutanazyczenie.pl" style="color:#C9963A;">nutanazyczenie.pl</a>
+    </p>
+  </div>
+</div>
+</body></html>"""
+
         resend.Emails.send({
-            "from":    f"NutaNaZyczenie <{FROM_EMAIL}>",
+            "from":    f"NutaNaŻyczenie <{FROM_EMAIL}>",
             "to":      [order["buyer_email"]],
-            "subject": f"Prezent dla {order['recipient_name']} wyslany!",
-            "html":    f"""<p>Czesc {order['buyer_name']}!</p>
-                          <p>Prezent dla <b>{order['recipient_name']}</b>
-                          zostal wyslany na: {recipient_email}</p>
-                          <p>Dziekujemy za zamowienie! <a href="https://nutanazyczenie.pl">nutanazyczenie.pl</a></p>""",
+            "subject": f"✅ Prezent dla {order['recipient_name']} wysłany!",
+            "html":    confirm_html,
         })
-        print(f"[Agent3] Potwierdzenie do: {order['buyer_email']}")
+        print(f"[Agent3] ✅ Potwierdzenie do: {order['buyer_email']}")
 
 
-def run(order: dict, song_text: str, poem: str, audio_url: str, audio_ext: str = "mp3") -> dict:
+def run(order: dict, song_text: str, poem: str, audio_url: str, audio_ext: str = "mp3", video_url: str = None) -> dict:
     """
     Główna funkcja Agenta 3.
 
@@ -286,6 +380,7 @@ def run(order: dict, song_text: str, poem: str, audio_url: str, audio_ext: str =
         poem:       wiersz od Agenta 1
         audio_url:  publiczny URL audio z Supabase (od Agenta 2)
         audio_ext:  rozszerzenie pliku audio (mp3 lub wav)
+        video_url:  publiczny URL wideo z Supabase (od Agenta 4, opcjonalne)
 
     Returns:
         dict: {success, pdf_url, error}
@@ -298,7 +393,7 @@ def run(order: dict, song_text: str, poem: str, audio_url: str, audio_ext: str =
         pdf_url = upload_pdf(pdf_bytes, str(order["id"]))
 
         # Wysyłamy email z linkami
-        send_email(order, audio_url, pdf_url, audio_ext)
+        send_email(order, audio_url, pdf_url, audio_ext, video_url)
 
         return {"success": True, "pdf_url": pdf_url}
 
