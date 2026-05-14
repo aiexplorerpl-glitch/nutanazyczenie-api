@@ -11,6 +11,7 @@ Odpowiada za:
 
 import os
 import io
+import base64
 import requests
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
@@ -25,6 +26,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import resend
 from supabase import create_client
+import agent3_qr
 
 resend.api_key  = os.environ.get("RESEND_API_KEY")
 FROM_EMAIL      = os.environ.get("FROM_EMAIL",    "zamowienia@nutanazyczenie.pl")
@@ -305,6 +307,21 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
 
     {poem_block}
 
+    <div style="background:#FFF8EE;border:1px solid rgba(201,150,58,0.25);
+                border-radius:12px;padding:18px 20px;margin-bottom:24px;">
+      <p style="margin:0 0 8px 0;color:#8B5E0A;font-size:0.9rem;font-weight:bold;
+                font-family:Arial,sans-serif;">
+        🎁 Twój prezent jest też gotowy do wręczenia!
+      </p>
+      <p style="margin:0;color:#5A3A10;font-size:0.85rem;line-height:1.65;
+                font-family:Arial,sans-serif;">
+        W załączniku znajdziesz <strong>eleganką kartkę z kodem QR</strong>
+        — wydrukuj ją i wręcz jako fizyczny prezent. Wystarczy że obdarowana
+        osoba zeskanuje telefonem kod i natychmiast usłyszy swoją piosenkę
+        {'lub obejrzy film' if video_url else ''}. ✨
+      </p>
+    </div>
+
     <div style="background:#F0F8FF;border-radius:12px;padding:16px 20px;margin-bottom:24px;">
       <p style="margin:0;color:#1565C0;font-size:0.88rem;line-height:1.6;font-family:Arial,sans-serif;">
         💡 <strong>Masz {poprawki}</strong> — jeśli chcesz zmienić coś
@@ -341,12 +358,34 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
 </div>
 </body></html>"""
 
-    resend.Emails.send({
+    # ── Generujemy kartkę z QR kodem ─────────────────────────
+    has_video  = bool(video_url)
+    media_url  = video_url if has_video else audio_url  # QR → wideo lub MP3
+    qr_card_bytes = None
+    qr_attachment = []
+
+    try:
+        qr_card_bytes = agent3_qr.create_qr_card(
+            order, media_url, has_video, str(order["id"])
+        )
+        qr_attachment = [{
+            "filename": f"Kartka_QR_{order['recipient_name']}.pdf",
+            "content":  base64.b64encode(qr_card_bytes).decode("utf-8"),
+        }]
+        print(f"[Agent3] ✅ Kartka QR gotowa")
+    except Exception as e:
+        print(f"[Agent3] ⚠️ QR błąd (kontynuuję bez kartki): {e}")
+
+    # ── Wysyłamy email ────────────────────────────────────────
+    email_data = {
         "from":    f"NutaNaŻyczenie <{FROM_EMAIL}>",
         "to":      [recipient_email],
         "subject": subject,
         "html":    html,
-    })
+    }
+    if qr_attachment:
+        email_data["attachments"] = qr_attachment
+    resend.Emails.send(email_data)
     print(f"[Agent3] ✅ Email wysłany do: {recipient_email}")
 
     # Kopia potwierdzenia do zamawiającego
