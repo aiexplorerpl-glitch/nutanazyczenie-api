@@ -217,14 +217,15 @@ async def run_pipeline(order_id: str):
 
     if is_premium and order.get("recipient_name2"):
         print("\n[Main] 📝 Agent 1 — piosenka 2 (Premium)...")
-        # Budujemy dane dla drugiej piosenki
         order2 = {
             **order,
-            "recipient_name": order["recipient_name2"],
-            "occasion":       order["occasion2"],
-            "person_desc":    order["person_desc2"],
-            "content_desc":   order["content_desc2"],
-            "music_style":    order.get("music_style2", order["music_style"]),
+            "recipient_name":  order["recipient_name2"],
+            "occasion":        order["occasion2"],
+            "person_desc":     order["person_desc2"],
+            "content_desc":    order["content_desc2"],
+            "music_style":     order.get("music_style2", order["music_style"]),
+            # Osobny email odbiorcy dla drugiej piosenki
+            "recipient_email": order.get("recipient_email2") or order["buyer_email"],
         }
         r1b = agent1_text.run(order2)
         if r1b["success"]:
@@ -240,8 +241,8 @@ async def run_pipeline(order_id: str):
                 r4b = agent4_video.run(order2, audio_url2)
                 video_url2 = r4b.get("video_url") if r4b["success"] else None
 
-    # ── Agent 3 — PDF + email ze wszystkimi plikami ───────────
-    print("\n[Main] 📦 Agent 3 — pakowanie i email...")
+    # ── Agent 3 — dwa osobne maile dla Premium ────────────────
+    print("\n[Main] 📦 Agent 3 — email 1 (piosenka 1)...")
     r3 = agent3_pack.run(
         order,
         r1["song_text"],
@@ -249,16 +250,25 @@ async def run_pipeline(order_id: str):
         r2["audio_url"],
         r2["ext"],
         video_url,
-        # Dane drugiej piosenki (Premium)
-        song_text2=song_text2,
-        poem2=poem2,
-        audio_url2=audio_url2,
-        video_url2=video_url2,
     )
     if not r3["success"]:
         _set_status(order_id, "error")
-        print(f"[Main] ❌ Agent3: {r3['error']}")
+        print(f"[Main] ❌ Agent3 email 1: {r3['error']}")
         return
+
+    # Drugi email dla Premium — piosenka 2 (z opóźnieniem 5s)
+    if is_premium and audio_url2 and order.get("recipient_name2"):
+        import asyncio
+        await asyncio.sleep(5)  # krótkie opóźnienie żeby maile przyszły osobno
+        print("\n[Main] 📦 Agent 3 — email 2 (piosenka 2 Premium)...")
+        agent3_pack.run(
+            order2,
+            song_text2,
+            poem2,
+            audio_url2,
+            r2b.get("ext", "mp3"),
+            video_url2,
+        )
 
     update_data = {
         "status":   "completed",
