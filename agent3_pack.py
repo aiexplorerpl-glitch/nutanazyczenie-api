@@ -173,7 +173,10 @@ def upload_pdf(pdf_bytes: bytes, order_id: str) -> str:
     return url
 
 
-def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str, video_url: str = None, poem: str = ""):
+def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
+               video_url: str = None, poem: str = "",
+               audio_url2: str = None, video_url2: str = None):
+    """Wysyła email z piosenką. Dla Premium dodaje drugą piosenkę i wideo."""
     """
     Wysyła email z linkami do pobrania.
     Zawiera podgląd wiersza inline, info o poprawce i nowe adresy email.
@@ -207,6 +210,34 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str, video_
                 font-size:1rem;font-weight:500;margin-bottom:12px;font-family:Arial,sans-serif;">
         🎬 Obejrzyj film wideo ze zdjęć
       </a>"""
+
+    # Sekcja drugiej piosenki — tylko dla Premium
+    second_song_block = ""
+    if audio_url2:
+        video2_btn = ""
+        if video_url2:
+            video2_btn = f"""
+      <a href="{video_url2}"
+         style="display:block;background:#E05C3A;color:white;text-align:center;
+                padding:14px 24px;border-radius:100px;text-decoration:none;
+                font-size:1rem;font-weight:500;margin-bottom:12px;font-family:Arial,sans-serif;">
+        🎬 Obejrzyj film wideo 2 ze zdjęć
+      </a>"""
+        second_song_block = f"""
+    <div style="margin-top:24px;padding-top:20px;
+                border-top:1px dashed rgba(201,150,58,0.3);">
+      <p style="font-size:0.85rem;color:#7A6A5A;margin:0 0 14px;
+                font-style:italic;font-family:Arial,sans-serif;">
+        👑 Druga piosenka (Pakiet Premium):
+      </p>
+      {video2_btn}
+      <a href="{audio_url2}"
+         style="display:block;background:transparent;color:#C9963A;text-align:center;
+                padding:13px 24px;border-radius:100px;text-decoration:none;
+                font-size:1rem;border:1.5px solid #C9963A;font-family:Arial,sans-serif;">
+        🎵 Pobierz piosenkę 2
+      </a>
+    </div>"""
 
     # Wiersz wyświetlony inline w emailu
     poem_lines = poem.strip().split("\n") if poem else []
@@ -269,6 +300,8 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str, video_
         📜 Pobierz tekst piosenki + wiersz (PDF)
       </a>
     </div>
+
+    {second_song_block}
 
     {poem_block}
 
@@ -370,30 +403,47 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str, video_
         print(f"[Agent3] ✅ Potwierdzenie do: {order['buyer_email']}")
 
 
-def run(order: dict, song_text: str, poem: str, audio_url: str, audio_ext: str = "mp3", video_url: str = None) -> dict:
+def run(order: dict, song_text: str, poem: str, audio_url: str,
+        audio_ext: str = "mp3", video_url: str = None,
+        song_text2: str = None, poem2: str = None,
+        audio_url2: str = None, video_url2: str = None) -> dict:
     """
     Główna funkcja Agenta 3.
 
-    Args:
-        order:      dane zamówienia
-        song_text:  tekst piosenki od Agenta 1
-        poem:       wiersz od Agenta 1
-        audio_url:  publiczny URL audio z Supabase (od Agenta 2)
-        audio_ext:  rozszerzenie pliku audio (mp3 lub wav)
-        video_url:  publiczny URL wideo z Supabase (od Agenta 4, opcjonalne)
-
-    Returns:
-        dict: {success, pdf_url, error}
+    Piosenka / Wideo:  1 email z piosenką + wideo + wierszem
+    Premium:           2 osobne emaile — każda piosenka jako oddzielna wiadomość,
+                       wysyłana na osobny adres jeśli klient podał recipient_email2
     """
     try:
-        # Tworzymy PDF w pamięci
+        is_premium = order["package_type"] == "premium"
+
+        # ── PDF dla piosenki 1 ────────────────────────────────
         pdf_bytes = create_pdf(order, song_text, poem)
+        pdf_url   = upload_pdf(pdf_bytes, str(order["id"]))
 
-        # Wgrywamy PDF do Supabase Storage
-        pdf_url = upload_pdf(pdf_bytes, str(order["id"]))
+        # ── Email 1 — pierwsza piosenka ───────────────────────
+        send_email(order, audio_url, pdf_url, audio_ext,
+                   video_url=video_url, poem=poem)
+        print(f"[Agent3] ✅ Email 1 wysłany")
 
-        # Wysyłamy email z linkami
-        send_email(order, audio_url, pdf_url, audio_ext, video_url)
+        # ── Email 2 — druga piosenka (tylko Premium) ──────────
+        if is_premium and audio_url2 and song_text2:
+            # Budujemy dane dla drugiej piosenki
+            order2 = {
+                **order,
+                "recipient_name":  order.get("recipient_name2", order["recipient_name"]),
+                "occasion":        order.get("occasion2",       order["occasion"]),
+                # Email odbiorcy — jeśli klient podał osobny adres dla piosenki 2
+                "recipient_email": order.get("recipient_email2") or order.get("recipient_email"),
+            }
+
+            # PDF dla piosenki 2
+            pdf_bytes2 = create_pdf(order2, song_text2, poem2 or "")
+            pdf_url2   = upload_pdf(pdf_bytes2, f"{order['id']}_2")
+
+            send_email(order2, audio_url2, pdf_url2, audio_ext,
+                       video_url=video_url2, poem=poem2 or "")
+            print(f"[Agent3] ✅ Email 2 (Premium) wysłany")
 
         return {"success": True, "pdf_url": pdf_url}
 

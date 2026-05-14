@@ -60,7 +60,14 @@ async def create_order(
     content_desc:    str            = Form(...),
     music_style:     str            = Form("pop"),
     recipient_email: Optional[str]  = Form(None),
-    photos:          List[UploadFile] = File(default=[]),
+    # Pola drugiej piosenki (tylko Premium)
+    recipient_name2:  Optional[str]  = Form(None),
+    occasion2:        Optional[str]  = Form(None),
+    person_desc2:     Optional[str]  = Form(None),
+    content_desc2:    Optional[str]  = Form(None),
+    music_style2:     Optional[str]  = Form(None),
+    recipient_email2: Optional[str]  = Form(None),
+    photos:           List[UploadFile] = File(default=[]),
 ):
     """
     Przyjmuje dane formularza jako FormData.
@@ -96,6 +103,13 @@ async def create_order(
         "content_desc":    content_desc,
         "music_style":     music_style,
         "recipient_email": recipient_email,
+        # Dane drugiej piosenki — zapisane jako JSON w osobnych polach
+        "recipient_name2": recipient_name2,
+        "occasion2":       occasion2,
+        "person_desc2":    person_desc2,
+        "content_desc2":   content_desc2,
+        "music_style2":    music_style2 or music_style,
+        "recipient_email2": recipient_email2,
         "status":          "pending",
     }
 
@@ -159,7 +173,6 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
 async def run_pipeline(order_id: str):
     print(f"\n{'='*55}\n[Main] START pipeline: {order_id}\n{'='*55}")
 
-    # Pobieramy dane zamówienia
     res = supabase.table("orders").select("*").eq("id", order_id).execute()
     if not res.data:
         print(f"[Main] ❌ Nie znaleziono zamówienia: {order_id}")
@@ -168,60 +181,92 @@ async def run_pipeline(order_id: str):
     order        = res.data[0]
     package_type = order["package_type"]
     has_video    = package_type in ("wideo", "premium")
+    is_premium   = package_type == "premium"
 
-    print(f"[Main] Pakiet: {package_type} | Wideo: {has_video}")
+    print(f"[Main] Pakiet: {package_type} | Wideo: {has_video} | Premium: {is_premium}")
     _set_status(order_id, "processing")
 
-    # ── Agent 1: Tekst piosenki ───────────────────────────────
-    print("\n[Main] 📝 Agent 1 (tekst)...")
+    # ── Piosenka 1 ────────────────────────────────────────────
+    print("\n[Main] 📝 Agent 1 — piosenka 1...")
     r1 = agent1_text.run(order)
     if not r1["success"]:
         _set_status(order_id, "error")
         print(f"[Main] ❌ Agent1: {r1['error']}")
         return
 
-    # ── Agent 2: Muzyka (GoAPI/Suno) ─────────────────────────
-    print("\n[Main] 🎵 Agent 2 (muzyka)...")
+    print("\n[Main] 🎵 Agent 2 — muzyka 1...")
     r2 = agent2_music.run(r1["song_text"], order)
     if not r2["success"]:
         _set_status(order_id, "error")
         print(f"[Main] ❌ Agent2: {r2['error']}")
         return
 
-    # ── Agent 4: Wideo (Shotstack) — tylko dla pakietów wideo ─
     video_url = None
     if has_video:
-        print("\n[Main] 🎬 Agent 4 (wideo)...")
+        print("\n[Main] 🎬 Agent 4 — wideo 1...")
         r4 = agent4_video.run(order, r2["audio_url"])
+        video_url = r4.get("video_url") if r4["success"] else None
         if not r4["success"]:
-            # Wideo opcjonalne — logujemy błąd ale nie przerywamy
-            print(f"[Main] ⚠️ Agent4 błąd (kontynuuję bez wideo): {r4['error']}")
-        else:
-            video_url = r4["video_url"]
+            print(f"[Main] ⚠️ Agent4 błąd (kontynuuję): {r4['error']}")
 
-    # ── Agent 3: PDF + Email ──────────────────────────────────
-    print("\n[Main] 📦 Agent 3 (PDF + email)...")
+    # ── Piosenka 2 — tylko Premium ────────────────────────────
+    audio_url2 = None
+    video_url2 = None
+    song_text2 = None
+    poem2      = None
+
+    if is_premium and order.get("recipient_name2"):
+        print("\n[Main] 📝 Agent 1 — piosenka 2 (Premium)...")
+        # Budujemy dane dla drugiej piosenki
+        order2 = {
+            **order,
+            "recipient_name": order["recipient_name2"],
+            "occasion":       order["occasion2"],
+            "person_desc":    order["person_desc2"],
+            "content_desc":   order["content_desc2"],
+            "music_style":    order.get("music_style2", order["music_style"]),
+        }
+        r1b = agent1_text.run(order2)
+        if r1b["success"]:
+            song_text2 = r1b["song_text"]
+            poem2      = r1b["poem"]
+
+            print("\n[Main] 🎵 Agent 2 — muzyka 2 (Premium)...")
+            r2b = agent2_music.run(song_text2, order2)
+            if r2b["success"]:
+                audio_url2 = r2b["audio_url"]
+
+                print("\n[Main] 🎬 Agent 4 — wideo 2 (Premium)...")
+                r4b = agent4_video.run(order2, audio_url2)
+                video_url2 = r4b.get("video_url") if r4b["success"] else None
+
+    # ── Agent 3 — PDF + email ze wszystkimi plikami ───────────
+    print("\n[Main] 📦 Agent 3 — pakowanie i email...")
     r3 = agent3_pack.run(
         order,
         r1["song_text"],
         r1["poem"],
         r2["audio_url"],
         r2["ext"],
-        video_url,       # None dla pakietu piosenka
+        video_url,
+        # Dane drugiej piosenki (Premium)
+        song_text2=song_text2,
+        poem2=poem2,
+        audio_url2=audio_url2,
+        video_url2=video_url2,
     )
     if not r3["success"]:
         _set_status(order_id, "error")
         print(f"[Main] ❌ Agent3: {r3['error']}")
         return
 
-    # Zapisujemy URL-e w bazie
     update_data = {
         "status":   "completed",
         "song_url": r2["audio_url"],
         "pdf_url":  r3["pdf_url"],
     }
-    if video_url:
-        update_data["video_url"] = video_url
+    if video_url:  update_data["video_url"]  = video_url
+    if audio_url2: update_data["song_url2"]  = audio_url2
 
     supabase.table("orders").update(update_data).eq("id", order_id).execute()
     print(f"\n[Main] 🎉 SUKCES — zamówienie {order_id} zakończone!\n{'='*55}\n")
