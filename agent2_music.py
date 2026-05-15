@@ -164,15 +164,47 @@ def upload_to_supabase(audio_url: str, order_id: str, ext: str) -> str:
 
 def run(song_text: str, order: dict) -> dict:
     """
-    TRYB AWARYJNY (BYPASS) — GoAPI wyłączyło Suno API.
-    Używamy testowego MP3 żeby przetestować resztę pipeline.
-    Gdy będzie nowe API (PiAPI) — przywróć normalną funkcję.
+    Główna funkcja Agenta 2 — generuje muzykę przez PiAPI (Suno).
+
+    Args:
+        song_text: tekst piosenki od Agenta 1
+        order:     dane zamówienia z Supabase
+
+    Returns:
+        dict: {success, audio_url, ext, error}
     """
     try:
-        print("[Agent2] ⚠️ BYPASS — używam testowego MP3...")
-        test_audio_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-        public_url = upload_to_supabase(test_audio_url, str(order["id"]), "mp3")
-        return {"success": True, "audio_url": public_url, "ext": "mp3"}
+        style = get_style_prompt(
+            order.get("music_style", "pop"),
+            order.get("occasion",    "urodziny"),
+            order["package_type"],
+        )
+
+        # Generujemy muzykę przez PiAPI
+        result = generate_and_poll(
+            song_text,
+            style,
+            f"Piosenka dla {order['recipient_name']}",
+        )
+
+        # Wgrywamy do Supabase Storage
+        public_url = upload_to_supabase(
+            result["audio_url"],
+            str(order["id"]),
+            result["ext"],
+        )
+
+        return {
+            "success":   True,
+            "audio_url": public_url,
+            "ext":       result["ext"],
+        }
+
     except Exception as e:
-        print(f"[Agent2] ❌ Błąd w trybie awaryjnym: {e}")
-        return {"success": False, "audio_url": None, "ext": "mp3", "error": str(e)}
+        print(f"[Agent2] ❌ Błąd: {e}")
+        return {
+            "success":   False,
+            "audio_url": None,
+            "ext":       "mp3",
+            "error":     str(e),
+        }
