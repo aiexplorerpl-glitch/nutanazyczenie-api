@@ -115,8 +115,11 @@ ZASADY:
 2. Musi się rymować (ABAB lub AABB)
 3. Zawiera imię {order["recipient_name"]}
 4. Nawiązuje do okazji: {order["occasion"]}
-5. Pisz PO POLSKU
-6. Tylko 4 linijki — bez tytułu, bez komentarzy"""
+5. Pisz PO POLSKU — używaj naturalnych, poprawnych gramatycznie zwrotów
+6. Każda linijka musi być sensownym, pełnym zdaniem lub frazą
+7. Sprawdź że każde słowo pasuje do kontekstu i ma sens w tym miejscu
+8. NIE używaj słów które nie pasują do zdania (np. "barwny, wiosny" jest błędem)
+9. Tylko 4 linijki — bez tytułu, bez komentarzy"""
 
     response = client.chat.completions.create(
         model="gpt-4o",

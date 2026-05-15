@@ -78,7 +78,7 @@ def build_shotstack_timeline(
             "start":    round(start, 2),
             "length":   PHOTO_DURATION,
             "fit":      "cover",
-            "scale":    1.05,  # lekki Ken Burns effect
+            "scale":    1.05,
             "effect":   "zoomIn" if i % 2 == 0 else "zoomOut",
             "transition": {
                 "in":  "fade",
@@ -102,7 +102,7 @@ def build_shotstack_timeline(
         },
         "start":  0.5,
         "length": 3.0,
-        "transition": {"in": "fadeInUp", "out": "fadeOutDown"},
+        "transition": {"in": "fade", "out": "fade"},
     })
 
     clips.append({
@@ -117,10 +117,10 @@ def build_shotstack_timeline(
         },
         "start":  0.5,
         "length": 3.0,
-        "transition": {"in": "fadeInUp", "out": "fadeOutDown"},
+        "transition": {"in": "fade", "out": "fade"},
     })
 
-    # ── Tekst końcowy — NutaNaŻyczenie ───────────────────────
+    # Tekst końcowy
     clips.append({
         "asset": {
             "type":     "title",
@@ -128,12 +128,11 @@ def build_shotstack_timeline(
             "style":    "minimal",
             "color":    "#E8B95A",
             "size":     "medium",
-            "position": "bottomCenter",
-            "offset":   {"x": 0, "y": 0.05},
+            "position": "bottom",
         },
         "start":  max(0, total_duration - 3.0),
         "length": 2.5,
-        "transition": {"in": "fadeIn", "out": "fadeOut"},
+        "transition": {"in": "fade", "out": "fade"},
     })
 
     # ── Podkład muzyczny ─────────────────────────────────────

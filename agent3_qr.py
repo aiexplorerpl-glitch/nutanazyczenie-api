@@ -21,35 +21,13 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase.pdfmetrics import registerFontFamily
 from reportlab.lib.colors import HexColor
+from fonts_helper import register_fonts
 
 # Kolory marki
-GOLD       = HexColor("#C9963A")
-GOLD_LIGHT = HexColor("#E8B95A")
-DARK       = HexColor("#1A1208")
-CREAM      = HexColor("#FAF6F0")
-MUTED      = HexColor("#7A6A5A")
-WHITE      = HexColor("#FFFFFF")
-
-
-def register_fonts():
-    """
-    Rejestruje czcionki DejaVu obsługujące polskie znaki (ś, ć, ą, ę, ł itp.).
-    Fallback na Helvetica jeśli DejaVu niedostępne.
-    """
-    try:
-        pdfmetrics.registerFont(TTFont("DejaVu",        "DejaVuSans.ttf"))
-        pdfmetrics.registerFont(TTFont("DejaVu-Bold",   "DejaVuSans-Bold.ttf"))
-        pdfmetrics.registerFont(TTFont("DejaVu-Italic", "DejaVuSans-Oblique.ttf"))
-        registerFontFamily("DejaVu",
-            normal="DejaVu", bold="DejaVu-Bold",
-            italic="DejaVu-Italic", boldItalic="DejaVu-Bold")
-        return "DejaVu", "DejaVu-Bold", "DejaVu-Italic"
-    except Exception:
-        return "Helvetica", "Helvetica-Bold", "Helvetica-Oblique"
+GOLD  = HexColor("#C9963A")
+DARK  = HexColor("#1A1208")
+MUTED = HexColor("#7A6A5A")
 
 
 def fetch_qr_image(url: str, size: int = 280) -> io.BytesIO:

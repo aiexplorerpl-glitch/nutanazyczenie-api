@@ -22,11 +22,10 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 import resend
 from supabase import create_client
 import agent3_qr
+from fonts_helper import register_fonts
 
 resend.api_key  = os.environ.get("RESEND_API_KEY")
 FROM_EMAIL      = os.environ.get("FROM_EMAIL",    "zamowienia@nutanazyczenie.pl")
@@ -43,29 +42,6 @@ DARK  = colors.HexColor("#1A1208")
 MUTED = colors.HexColor("#7A6A5A")
 
 
-def register_fonts():
-    """
-    Rejestruje bezpieczne czcionki dostępne na każdym serwerze Linux.
-    Używamy DejaVu — wbudowanych w ReportLab od wersji 3.3.
-    Fallback na Helvetica jeśli ReportLab jest starsze.
-    """
-    try:
-        # DejaVu jest dostępne w reportlab >= 3.3 bez instalacji
-        from reportlab.pdfbase.pdfmetrics import registerFontFamily
-        pdfmetrics.registerFont(TTFont("DejaVu",      "DejaVuSans.ttf"))
-        pdfmetrics.registerFont(TTFont("DejaVu-Bold", "DejaVuSans-Bold.ttf"))
-        pdfmetrics.registerFont(TTFont("DejaVu-Italic","DejaVuSans-Oblique.ttf"))
-        registerFontFamily("DejaVu",
-            normal="DejaVu",
-            bold="DejaVu-Bold",
-            italic="DejaVu-Italic",
-            boldItalic="DejaVu-Bold",
-        )
-        return "DejaVu", "DejaVu-Bold", "DejaVu-Italic"
-    except Exception:
-        # Fallback — Helvetica jest zawsze dostępna w ReportLab
-        return "Helvetica", "Helvetica-Bold", "Helvetica-Oblique"
-
 
 def create_pdf(order: dict, song_text: str, poem: str) -> bytes:
     """
@@ -78,47 +54,43 @@ def create_pdf(order: dict, song_text: str, poem: str) -> bytes:
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
         rightMargin=2.5*cm, leftMargin=2.5*cm,
-        topMargin=2.5*cm,   bottomMargin=2.5*cm,
+        topMargin=2*cm, bottomMargin=2*cm,
     )
 
-    styles = getSampleStyleSheet()
-
     s_title = ParagraphStyle("T",
-        fontSize=26, textColor=GOLD, alignment=TA_CENTER,
-        spaceAfter=4, fontName=font_bold)
-    s_subtitle = ParagraphStyle("S",
-        fontSize=12, textColor=DARK, alignment=TA_CENTER,
-        spaceAfter=4, fontName=font_normal)
+        fontSize=22, textColor=GOLD, alignment=TA_CENTER,
+        spaceAfter=6, spaceBefore=0, fontName=font_bold, leading=28)
     s_meta = ParagraphStyle("M",
-        fontSize=10, textColor=MUTED, alignment=TA_CENTER,
-        spaceAfter=4, fontName=font_italic)
+        fontSize=9, textColor=MUTED, alignment=TA_CENTER,
+        spaceAfter=8, fontName=font_normal, leading=14)
     s_section = ParagraphStyle("Sec",
-        fontSize=9, textColor=GOLD, spaceAfter=6, spaceBefore=14,
-        fontName=font_bold)
+        fontSize=8, textColor=GOLD, spaceAfter=4, spaceBefore=16,
+        fontName=font_bold, leading=12)
     s_tag = ParagraphStyle("Tag",
-        fontSize=8, textColor=MUTED, spaceAfter=2, spaceBefore=8,
-        fontName=font_italic)
+        fontSize=8, textColor=MUTED, spaceAfter=1, spaceBefore=6,
+        fontName=font_italic, leading=10)
     s_lyrics = ParagraphStyle("Lyr",
-        fontSize=11, textColor=DARK, spaceAfter=3,
-        fontName=font_normal, leftIndent=20, leading=16)
+        fontSize=10.5, textColor=DARK, spaceAfter=2,
+        fontName=font_normal, leftIndent=16, leading=15)
     s_poem = ParagraphStyle("Poe",
-        fontSize=12, textColor=DARK, spaceAfter=4,
-        fontName=font_italic, alignment=TA_CENTER, leading=18)
+        fontSize=11, textColor=DARK, spaceAfter=4,
+        fontName=font_italic, alignment=TA_CENTER, leading=17)
     s_footer = ParagraphStyle("Ft",
-        fontSize=8, textColor=MUTED, alignment=TA_CENTER,
-        fontName=font_normal)
+        fontSize=7.5, textColor=MUTED, alignment=TA_CENTER,
+        fontName=font_normal, leading=11)
 
     story = []
 
     # Nagłówek
-    story.append(Spacer(1, 0.3*cm))
-    story.append(Paragraph("NutaNaZyczenie", s_title))
-    story.append(Paragraph("Muzyczne Prezenty", s_subtitle))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=GOLD, spaceAfter=6))
+    story.append(Paragraph("NutaNaZyczenie — Muzyczne Prezenty", s_title))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=GOLD, spaceAfter=8))
     story.append(Paragraph(
-        f"Dla: {order['recipient_name']}  |  "
-        f"Okazja: {order['occasion']}  |  "
+        f"Dla: <b>{order['recipient_name']}</b>  ·  "
+        f"Okazja: {order['occasion']}  ·  "
         f"Data: {datetime.now().strftime('%d.%m.%Y')}",
+        s_meta
+    ))
+    story.append(Spacer(1, 0.3*cm))
         s_meta
     ))
     story.append(Spacer(1, 0.5*cm))
@@ -185,7 +157,34 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
     """
     recipient_email = order.get("recipient_email") or order["buyer_email"]
     is_direct       = bool(order.get("recipient_email"))
-    poprawki        = "2 bezpłatne poprawki" if order["package_type"] == "premium" else "1 bezpłatną poprawkę"
+    package_type    = order.get("package_type", "piosenka")
+
+    # Poprawki: tylko pakiet wideo (1 poprawka) i premium (2 poprawki), w ciągu 24h
+    if package_type == "premium":
+        correction_block = f"""
+    <div style="background:#EBF4FF;border-left:4px solid #4A90D9;border-radius:0 10px 10px 0;
+                padding:14px 18px;margin-bottom:20px;">
+      <p style="margin:0;color:#1A3A5C;font-size:0.88rem;font-family:Arial,sans-serif;">
+        💡 <strong>Masz 2 bezpłatne poprawki</strong> — jeśli chcesz zmienić coś
+        w tekście lub muzyce, napisz do nas <strong>w ciągu 24 godzin</strong>
+        od otrzymania zamówienia.<br>
+        <a href="mailto:{FROM_EMAIL}" style="color:#4A90D9;">{FROM_EMAIL}</a>
+      </p>
+    </div>"""
+    elif package_type == "wideo":
+        correction_block = f"""
+    <div style="background:#EBF4FF;border-left:4px solid #4A90D9;border-radius:0 10px 10px 0;
+                padding:14px 18px;margin-bottom:20px;">
+      <p style="margin:0;color:#1A3A5C;font-size:0.88rem;font-family:Arial,sans-serif;">
+        💡 <strong>Masz 1 bezpłatną poprawkę</strong> — jeśli chcesz zmienić coś
+        w tekście lub muzyce, napisz do nas <strong>w ciągu 24 godzin</strong>
+        od otrzymania zamówienia.<br>
+        <a href="mailto:{FROM_EMAIL}" style="color:#4A90D9;">{FROM_EMAIL}</a>
+      </p>
+    </div>"""
+    else:
+        # Pakiet piosenka — brak darmowych poprawek
+        correction_block = ""
 
     if is_direct:
         subject  = f"🎵 Masz wyjątkowy prezent muzyczny od {order['buyer_name']}!"
@@ -323,16 +322,14 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
     </div>
 
     <div style="background:#F0F8FF;border-radius:12px;padding:16px 20px;margin-bottom:24px;">
-      <p style="margin:0;color:#1565C0;font-size:0.88rem;line-height:1.6;font-family:Arial,sans-serif;">
-        💡 <strong>Masz {poprawki}</strong> — jeśli chcesz zmienić coś
-        w tekście lub muzyce, napisz do nas w ciągu 7 dni.
+      <p style="margin:0;color:#1A3A5C;font-size:0.88rem;line-height:1.6;font-family:Arial,sans-serif;">
+        {correction_block}
       </p>
     </div>
 
     <p style="color:#7A6A5A;font-size:0.85rem;line-height:1.7;
               font-family:Arial,sans-serif;margin:0;">
-      Pytania lub chcesz skorzystać z poprawki?<br>
-      Napisz: <a href="mailto:{FROM_EMAIL}" style="color:#C9963A;">{FROM_EMAIL}</a>
+      Pytania? Napisz: <a href="mailto:{FROM_EMAIL}" style="color:#C9963A;">{FROM_EMAIL}</a>
     </p>
   </div>
 
