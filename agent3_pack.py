@@ -328,6 +328,12 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
               font-family:Arial,sans-serif;margin:0;">
       Pytania? Napisz: <a href="mailto:{FROM_EMAIL}" style="color:#C9963A;">{FROM_EMAIL}</a>
     </p>
+
+    <p style="color:#B8A89A;font-size:0.78rem;line-height:1.6;
+              font-family:Arial,sans-serif;margin-top:16px;">
+      ⏳ Linki do pobrania i kod QR są aktywne przez <strong>60 dni</strong>
+      od daty zamówienia. Pobierz pliki na swój dysk przed upływem tego czasu.
+    </p>
   </div>
 
   <div style="background:#1A1208;padding:24px 32px;text-align:center;">

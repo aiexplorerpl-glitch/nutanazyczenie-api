@@ -25,8 +25,9 @@ resend.api_key  = os.environ.get("RESEND_API_KEY")
 FROM_EMAIL      = os.environ.get("FROM_EMAIL",    "zamowienia@nutanazyczenie.pl")
 CONTACT_EMAIL   = os.environ.get("CONTACT_EMAIL", "kontakt@nutanazyczenie.pl")
 
-CLEANUP_AFTER_HOURS = 24  # usuń dane po 24h od dostarczenia
-CORRECTION_WINDOW_HOURS = 24  # poprawki tylko przez 24h od dostarczenia
+PHOTOS_DELETE_HOURS = 24        # zdjęcia klientów usuwane po 24h (RODO)
+FILES_DELETE_DAYS   = 60        # MP3/PDF/wideo dostępne przez 60 dni
+CORRECTION_WINDOW_HOURS = 24   # poprawki tylko przez 24h od dostarczenia
 
 
 def delete_storage_folder(bucket: str, folder: str):
@@ -171,33 +172,49 @@ def check_correction_window(order: dict) -> bool:
 def run_cleanup():
     """
     Główna funkcja czyszczenia — uruchamiana co godzinę przez endpoint /api/cleanup.
-    Sprawdza wszystkie zamówienia ze statusem 'completed' starsze niż 24h
-    i usuwa powiązane pliki oraz wrażliwe dane.
+
+    Dwa osobne timery:
+    - Zdjęcia klientów (bucket 'photos') → usuwane po 24h (RODO)
+    - Pliki produktu (MP3/PDF/wideo w bucket 'orders') → usuwane po 60 dniach
     """
-    print(f"[Cleanup] Start czyszczenia — {datetime.now(timezone.utc).isoformat()}")
+    print(f"[Cleanup] Start — {datetime.now(timezone.utc).isoformat()}")
+    now = datetime.now(timezone.utc)
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=CLEANUP_AFTER_HOURS)
-    cutoff_str = cutoff.isoformat()
+    # ── KROK 1: Usuń zdjęcia klientów po 24h ─────────────────────────────
+    photos_cutoff = (now - timedelta(hours=PHOTOS_DELETE_HOURS)).isoformat()
 
-    # Pobieramy zakończone zamówienia starsze niż 24h które nie były jeszcze czyszczone
-    result = supabase.table("orders").select("*").eq(
+    photos_result = supabase.table("orders").select("id").eq(
         "status", "completed"
-    ).lt("updated_at", cutoff_str).execute()
+    ).lt("updated_at", photos_cutoff).execute()
 
-    orders = result.data or []
-    print(f"[Cleanup] Znaleziono {len(orders)} zamówień do wyczyszczenia")
+    photos_orders = photos_result.data or []
+    print(f"[Cleanup] Zdjęcia do usunięcia: {len(photos_orders)} zamówień")
 
-    cleaned = 0
-    for order in orders:
+    for order in photos_orders:
         order_id = str(order["id"])
         try:
-            # Usuń zdjęcia klienta (bucket 'photos')
             delete_storage_folder("photos", order_id)
+        except Exception as e:
+            print(f"[Cleanup] ❌ Błąd usuwania zdjęć {order_id}: {e}")
 
-            # Usuń wygenerowane pliki (bucket 'orders': MP3, PDF, wideo)
+    # ── KROK 2: Usuń pliki produktu po 60 dniach ─────────────────────────
+    files_cutoff = (now - timedelta(days=FILES_DELETE_DAYS)).isoformat()
+
+    files_result = supabase.table("orders").select("*").in_(
+        "status", ["completed", "photos_cleaned"]
+    ).lt("updated_at", files_cutoff).execute()
+
+    files_orders = files_result.data or []
+    print(f"[Cleanup] Pliki do usunięcia po 60 dniach: {len(files_orders)} zamówień")
+
+    cleaned = 0
+    for order in files_orders:
+        order_id = str(order["id"])
+        try:
+            # Usuń MP3, PDF, wideo
             delete_storage_folder("orders", order_id)
 
-            # Zanonimizuj wrażliwe dane w tabeli
+            # Anonimizuj wrażliwe dane
             anonymize_order(order_id)
 
             # Oznacz jako wyczyszczone
@@ -206,10 +223,13 @@ def run_cleanup():
             }).eq("id", order_id).execute()
 
             cleaned += 1
-            print(f"[Cleanup] ✅ Wyczyszczono zamówienie {order_id}")
+            print(f"[Cleanup] ✅ Wyczyszczono pliki zamówienia {order_id}")
 
         except Exception as e:
             print(f"[Cleanup] ❌ Błąd przy {order_id}: {e}")
 
-    print(f"[Cleanup] Zakończono — wyczyszczono {cleaned}/{len(orders)} zamówień")
-    return {"cleaned": cleaned, "total": len(orders)}
+    print(f"[Cleanup] Zakończono — usunięto pliki {cleaned}/{len(files_orders)} zamówień")
+    return {
+        "photos_cleaned": len(photos_orders),
+        "files_cleaned":  cleaned,
+    }
