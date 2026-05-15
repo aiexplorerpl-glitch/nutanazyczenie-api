@@ -378,6 +378,24 @@ async def request_correction(order_id: str, request: Request):
     return {"status": "ok", "message": "Poprawka przyjęta — realizacja w ciągu 55 minut"}
 
 
+@app.get("/api/force-run/{order_id}")
+async def force_run(order_id: str, background_tasks: BackgroundTasks):
+    """Proste wejście do testowania pipeline w przeglądarce — bez tokena."""
+    print(f"[Force Run] Wymuszam start dla: {order_id}")
+    # Resetujemy status żeby pipeline mógł wystartować
+    supabase.table("orders").update({"status": "pending"}).eq("id", order_id).execute()
+    background_tasks.add_task(run_pipeline, order_id)
+    return {"status": "Wymuszono start maszyny! Sprawdz okno logow w Railway."}
+
+
+@app.get("/api/force-run/{order_id}")
+async def force_run(order_id: str, background_tasks: BackgroundTasks):
+    """Proste wejście do testowania pipeline w przeglądarce — bez tokena"""
+    print(f"[Force Run] Wymuszam start dla: {order_id}")
+    background_tasks.add_task(run_pipeline, order_id)
+    return {"status": "Wymuszono start maszyny! Sprawdz okno logow w Railway."}
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
