@@ -289,7 +289,31 @@ def _set_status(order_id: str, status: str):
 
 
 # ── Status zamówienia ─────────────────────────────────────────────────────────
-@app.get("/api/order/{order_id}")
+@app.post("/api/retry/{order_id}")
+async def retry_order(order_id: str, request: Request, background_tasks: BackgroundTasks):
+    """
+    Ponawia pipeline dla zamówienia które zakończyło się błędem.
+    Zabezpieczony tym samym tokenem co cleanup.
+    """
+    auth = request.headers.get("Authorization", "")
+    cleanup_token = os.environ.get("CLEANUP_TOKEN", "")
+    if cleanup_token and auth != f"Bearer {cleanup_token}":
+        raise HTTPException(401, "Unauthorized")
+
+    res = supabase.table("orders").select("*").eq("id", order_id).execute()
+    if not res.data:
+        raise HTTPException(404, "Zamówienie nie znalezione")
+
+    order = res.data[0]
+    print(f"[Main] 🔄 Retry zamówienia: {order_id} (status: {order['status']})")
+
+    # Resetujemy status i uruchamiamy pipeline ponownie
+    supabase.table("orders").update({"status": "pending"}).eq("id", order_id).execute()
+    background_tasks.add_task(run_pipeline, order_id)
+
+    return {"status": "ok", "message": f"Pipeline ponownie uruchomiony dla {order_id}"}
+
+
 async def get_order(order_id: str):
     res = supabase.table("orders").select(
         "id,status,recipient_name,occasion,package_type,created_at"
