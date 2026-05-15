@@ -114,26 +114,28 @@ def generate_and_poll(song_text: str, style: str, title: str) -> dict:
         print(f"[Agent2] Status: {status} ({waited}s)")
 
         if status in ("completed", "success", "complete"):
-            # Szukamy audio_url w różnych miejscach
-            inner = result.get("data", result)
-            audio_url = (
-                inner.get("audio_url") or
-                inner.get("output", {}).get("audio_url")
-            )
-            # Sprawdzamy clips
+            # sunor.cc: audio_url jest w data.output.result[0].audio_url
+            inner  = result.get("data", result)
+            output = inner.get("output", {})
+            results_list = output.get("result", [])
+
+            audio_url = None
+            if results_list and isinstance(results_list, list):
+                audio_url = results_list[0].get("audio_url")
+
+            # Fallback — szukaj wszędzie
             if not audio_url:
-                clips = inner.get("clips") or inner.get("output", {}).get("clips", [])
-                if isinstance(clips, list) and clips:
-                    audio_url = clips[0].get("audio_url")
-                elif isinstance(clips, dict) and clips:
-                    audio_url = list(clips.values())[0].get("audio_url")
+                audio_url = (
+                    inner.get("audio_url") or
+                    output.get("audio_url")
+                )
 
             if audio_url:
                 ext = "wav" if ".wav" in audio_url.lower() else "mp3"
                 print(f"[Agent2] ✅ Audio gotowe: {audio_url[:60]}...")
                 return {"audio_url": audio_url, "ext": ext}
             else:
-                print(f"[Agent2] Completed ale brak audio_url — pełna odpowiedź: {result}")
+                print(f"[Agent2] ⚠️ Brak audio_url mimo status completed")
 
         elif status in ("failed", "error"):
             raise Exception(f"sunor.cc failed: {result.get('error', result)}")
