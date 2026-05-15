@@ -1,12 +1,8 @@
 """
-AGENT 2 — MUZYK (GoAPI / Suno)
-================================
-Odpowiada za:
-1. Odebranie tekstu piosenki od Agenta 1
-2. Wysłanie do GoAPI (Suno) z odpowiednim promptem stylu
-3. Polling co 15s aż muzyka będzie gotowa
-4. Wgranie MP3 do Supabase Storage
-5. Zwrócenie publicznego URL do pliku
+AGENT 2 — MUZYK (sunor.cc)
+===========================
+Generuje muzykę przez sunor.cc — działające API Suno V5.5
+Endpoint: https://sunor.cc/api/v1/task
 """
 
 import os
@@ -19,8 +15,8 @@ supabase = create_client(
     os.environ.get("SUPABASE_SERVICE_KEY"),
 )
 
-SUNO_API_KEY   = os.environ.get("SUNO_API_KEY")
-GOAPI_BASE_URL = "https://api.piapi.ai/api/suno/v1/music"
+SUNO_API_KEY  = os.environ.get("SUNO_API_KEY")
+SUNOR_API_URL = "https://sunor.cc/api/v1"
 
 STYLE_MAP = {
     "pop":       "polish pop, upbeat, catchy, modern",
@@ -39,74 +35,63 @@ OCCASION_MOOD = {
     "rocznica":     "romantic, emotional, nostalgic",
     "walentynki":   "romantic, love song, tender",
     "absolutorium": "triumphant, proud, celebratory",
+    "pożegnanie":   "warm, nostalgic, bittersweet",
 }
 
 
 def get_style_prompt(music_style: str, occasion: str, package_type: str) -> str:
-    """Buduje prompt stylu dla Suno przez GoAPI."""
     style_key = music_style.lower().split("/")[0].strip()
-    base = STYLE_MAP.get(style_key, "polish pop, upbeat, modern")
-
-    mood = "warm, celebratory, personal"
+    base  = STYLE_MAP.get(style_key, "polish pop, upbeat, modern")
+    mood  = "warm, celebratory, personal"
     for key, val in OCCASION_MOOD.items():
         if key in occasion.lower():
             mood = val
             break
-
-    # Długość zależna od pakietu
-    if package_type == "premium":
-        duration = "2.5 to 3 minute song, extended with bridge and final chorus"
-    else:
-        duration = "2 minute song, verse chorus verse chorus outro"
-
+    duration = "2.5 to 3 minute song" if package_type == "premium" else "2 minute song"
     return f"{base}, {mood}, {duration}, Polish vocals, high quality"
 
 
 def generate_and_poll(song_text: str, style: str, title: str) -> dict:
-    """
-    Wysyła żądanie do GoAPI i odpytuje co 15s aż muzyka będzie gotowa.
-    GoAPI zwraca task_id → polling → clips z audio_url.
-    """
     headers = {
-        "X-API-Key": SUNO_API_KEY,
+        "x-api-key":    SUNO_API_KEY,
         "Content-Type": "application/json",
     }
 
     payload = {
-        "custom_mode":       True,
-        "prompt":            song_text,
-        "tags":              style,
-        "title":             title,
-        "make_instrumental": False,
+        "model":     "suno",
+        "task_type": "music",
+        "input": {
+            "prompt":           song_text,
+            "tags":             style,
+            "title":            title,
+            "make_instrumental": False,
+        }
     }
 
-    print(f"[Agent2] Wysyłam do GoAPI...")
-    print(f"[Agent2] Styl: {style[:80]}...")
-
+    print(f"[Agent2] Wysyłam do sunor.cc...")
     resp = requests.post(
-        GOAPI_BASE_URL,
+        f"{SUNOR_API_URL}/task",
         json=payload,
         headers=headers,
         timeout=30,
     )
 
-    if resp.status_code != 200:
-        raise Exception(f"GoAPI error {resp.status_code}: {resp.text}")
+    if resp.status_code not in (200, 201):
+        raise Exception(f"sunor.cc error {resp.status_code}: {resp.text}")
 
     data    = resp.json()
-    task_id = data.get("data", {}).get("task_id")
+    task_id = data.get("task_id") or data.get("id")
     if not task_id:
-        raise Exception(f"GoAPI nie zwróciło task_id: {data}")
+        raise Exception(f"Brak task_id w odpowiedzi: {data}")
 
     print(f"[Agent2] Task ID: {task_id} — polling co 15s (max 6 min)...")
 
-    # Polling max 6 minut (24 próby × 15s)
     for attempt in range(24):
         time.sleep(15)
         waited = (attempt + 1) * 15
 
         poll = requests.get(
-            f"{GOAPI_BASE_URL}/{task_id}",
+            f"{SUNOR_API_URL}/task/{task_id}",
             headers=headers,
             timeout=30,
         )
@@ -115,32 +100,37 @@ def generate_and_poll(song_text: str, style: str, title: str) -> dict:
             print(f"[Agent2] Polling error: {poll.status_code} — próba {attempt+1}")
             continue
 
-        task_data = poll.json().get("data", {})
-        status    = task_data.get("status", "")
+        result = poll.json()
+        status = result.get("status", "")
         print(f"[Agent2] Status: {status} ({waited}s)")
 
-        if status in ("success", "completed"):
-            clips = task_data.get("clips", {})
-            if clips:
-                first_id  = list(clips.keys())[0]
-                audio_url = clips[first_id].get("audio_url")
-                if audio_url:
-                    print(f"[Agent2] ✅ Audio gotowe!")
-                    # Sprawdzamy format pliku
-                    ext = "wav" if ".wav" in audio_url.lower() else "mp3"
-                    return {"audio_url": audio_url, "ext": ext}
+        if status in ("completed", "success", "complete"):
+            # Szukamy audio_url w różnych miejscach odpowiedzi
+            audio_url = (
+                result.get("audio_url") or
+                result.get("output", {}).get("audio_url") or
+                result.get("data", {}).get("audio_url")
+            )
+            # Czasem jest lista klipów
+            if not audio_url:
+                clips = result.get("clips") or result.get("output", {}).get("clips", [])
+                if isinstance(clips, list) and clips:
+                    audio_url = clips[0].get("audio_url")
+                elif isinstance(clips, dict) and clips:
+                    audio_url = list(clips.values())[0].get("audio_url")
+
+            if audio_url:
+                ext = "wav" if ".wav" in audio_url.lower() else "mp3"
+                print(f"[Agent2] ✅ Audio gotowe!")
+                return {"audio_url": audio_url, "ext": ext}
 
         elif status in ("failed", "error"):
-            raise Exception(f"GoAPI failed: {task_data.get('error', 'unknown')}")
+            raise Exception(f"sunor.cc failed: {result.get('error', 'unknown')}")
 
-    raise Exception("Timeout — GoAPI nie wygenerowało muzyki w 360s")
+    raise Exception("Timeout — sunor.cc nie wygenerował w 360s")
 
 
 def upload_to_supabase(audio_url: str, order_id: str, ext: str) -> str:
-    """
-    Pobiera plik audio i wgrywa do Supabase Storage.
-    Jeśli plik już istnieje — usuwa go najpierw (obsługa retry).
-    """
     print(f"[Agent2] Pobieram audio ({ext.upper()})...")
     resp = requests.get(audio_url, timeout=60)
     if resp.status_code != 200:
@@ -149,12 +139,11 @@ def upload_to_supabase(audio_url: str, order_id: str, ext: str) -> str:
     filename     = f"{order_id}/song.{ext}"
     content_type = "audio/mpeg" if ext == "mp3" else "audio/wav"
 
-    # Usuń stary plik jeśli istnieje (obsługa retry zamówień)
+    # Usuń stary plik jeśli istnieje (obsługa retry)
     try:
         supabase.storage.from_("orders").remove([filename])
-        print(f"[Agent2] Usunięto stary plik: {filename}")
     except Exception:
-        pass  # plik nie istniał — OK
+        pass
 
     print(f"[Agent2] Wgrywam do Supabase Storage...")
     supabase.storage.from_("orders").upload(
@@ -170,16 +159,6 @@ def upload_to_supabase(audio_url: str, order_id: str, ext: str) -> str:
 
 
 def run(song_text: str, order: dict) -> dict:
-    """
-    Główna funkcja Agenta 2 — generuje muzykę przez PiAPI (Suno).
-
-    Args:
-        song_text: tekst piosenki od Agenta 1
-        order:     dane zamówienia z Supabase
-
-    Returns:
-        dict: {success, audio_url, ext, error}
-    """
     try:
         style = get_style_prompt(
             order.get("music_style", "pop"),
@@ -187,31 +166,20 @@ def run(song_text: str, order: dict) -> dict:
             order["package_type"],
         )
 
-        # Generujemy muzykę przez PiAPI
         result = generate_and_poll(
             song_text,
             style,
             f"Piosenka dla {order['recipient_name']}",
         )
 
-        # Wgrywamy do Supabase Storage
         public_url = upload_to_supabase(
             result["audio_url"],
             str(order["id"]),
             result["ext"],
         )
 
-        return {
-            "success":   True,
-            "audio_url": public_url,
-            "ext":       result["ext"],
-        }
+        return {"success": True, "audio_url": public_url, "ext": result["ext"]}
 
     except Exception as e:
         print(f"[Agent2] ❌ Błąd: {e}")
-        return {
-            "success":   False,
-            "audio_url": None,
-            "ext":       "mp3",
-            "error":     str(e),
-        }
+        return {"success": False, "audio_url": None, "ext": "mp3", "error": str(e)}
