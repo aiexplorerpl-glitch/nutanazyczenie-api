@@ -134,7 +134,7 @@ async def create_order(
 
     # Tworzymy sesję Stripe Checkout
     session = stripe.checkout.Session.create(
-        automatic_payment_methods={"enabled": True},
+        payment_method_types=["card"],
         line_items=[{"price": price_id, "quantity": 1}],
         mode="payment",
         allow_promotion_codes=True,
