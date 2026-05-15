@@ -91,9 +91,6 @@ def create_pdf(order: dict, song_text: str, poem: str) -> bytes:
         s_meta
     ))
     story.append(Spacer(1, 0.3*cm))
-        s_meta
-    ))
-    story.append(Spacer(1, 0.5*cm))
 
     # Tekst piosenki
     story.append(Paragraph("TWOJA SPERSONALIZOWANA PIOSENKA", s_section))
