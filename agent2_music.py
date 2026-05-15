@@ -76,11 +76,16 @@ def generate_and_poll(song_text: str, style: str, title: str) -> dict:
         timeout=30,
     )
 
-    if resp.status_code not in (200, 201):
+    if resp.status_code not in (200, 201, 202):
         raise Exception(f"sunor.cc error {resp.status_code}: {resp.text}")
 
     data    = resp.json()
-    task_id = data.get("task_id") or data.get("id")
+    # sunor.cc zwraca task_id w data.data.task_id
+    task_id = (
+        data.get("task_id") or
+        data.get("data", {}).get("task_id") or
+        data.get("id")
+    )
     if not task_id:
         raise Exception(f"Brak task_id w odpowiedzi: {data}")
 
@@ -101,19 +106,23 @@ def generate_and_poll(song_text: str, style: str, title: str) -> dict:
             continue
 
         result = poll.json()
-        status = result.get("status", "")
+        # sunor.cc: status może być w root lub w data
+        status = (
+            result.get("status") or
+            result.get("data", {}).get("status", "")
+        )
         print(f"[Agent2] Status: {status} ({waited}s)")
 
         if status in ("completed", "success", "complete"):
-            # Szukamy audio_url w różnych miejscach odpowiedzi
+            # Szukamy audio_url w różnych miejscach
+            inner = result.get("data", result)
             audio_url = (
-                result.get("audio_url") or
-                result.get("output", {}).get("audio_url") or
-                result.get("data", {}).get("audio_url")
+                inner.get("audio_url") or
+                inner.get("output", {}).get("audio_url")
             )
-            # Czasem jest lista klipów
+            # Sprawdzamy clips
             if not audio_url:
-                clips = result.get("clips") or result.get("output", {}).get("clips", [])
+                clips = inner.get("clips") or inner.get("output", {}).get("clips", [])
                 if isinstance(clips, list) and clips:
                     audio_url = clips[0].get("audio_url")
                 elif isinstance(clips, dict) and clips:
@@ -121,11 +130,13 @@ def generate_and_poll(song_text: str, style: str, title: str) -> dict:
 
             if audio_url:
                 ext = "wav" if ".wav" in audio_url.lower() else "mp3"
-                print(f"[Agent2] ✅ Audio gotowe!")
+                print(f"[Agent2] ✅ Audio gotowe: {audio_url[:60]}...")
                 return {"audio_url": audio_url, "ext": ext}
+            else:
+                print(f"[Agent2] Completed ale brak audio_url — pełna odpowiedź: {result}")
 
         elif status in ("failed", "error"):
-            raise Exception(f"sunor.cc failed: {result.get('error', 'unknown')}")
+            raise Exception(f"sunor.cc failed: {result.get('error', result)}")
 
     raise Exception("Timeout — sunor.cc nie wygenerował w 360s")
 
