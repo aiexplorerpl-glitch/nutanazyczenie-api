@@ -137,6 +137,7 @@ async def create_order(
         payment_method_types=["card", "blik"],
         line_items=[{"price": price_id, "quantity": 1}],
         mode="payment",
+        allow_promotion_codes=True,
         success_url=f"{BASE_URL}/sukces?order={order_id}",
         cancel_url=f"{BASE_URL}/#zamow",
         metadata={"order_id": str(order_id)},
