@@ -36,18 +36,21 @@ TRANSITION_DURATION = 0.8
 
 def get_photo_urls(order_id: str) -> list:
     """
-    Pobiera listę publicznych URL zdjęć klienta z Supabase Storage.
-    Zdjęcia są przechowywane w bucket 'photos' pod ścieżką order_id/
+    Pobiera tymczasowe linki do zdjęć klientów z Supabase Storage.
+    Używa signed URLs (ważne 1h) bo bucket 'photos' jest prywatny.
     """
     try:
         files = supabase.storage.from_("photos").list(order_id)
         urls  = []
         for f in files:
             if f["name"].lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
-                url = supabase.storage.from_("photos").get_public_url(
-                    f"{order_id}/{f['name']}"
+                # Signed URL ważny 3600 sekund (1 godzina)
+                signed = supabase.storage.from_("photos").create_signed_url(
+                    f"{order_id}/{f['name']}", 3600
                 )
-                urls.append(url)
+                url = signed.get("signedURL") or signed.get("signed_url") or signed.get("data", {}).get("signedUrl")
+                if url:
+                    urls.append(url)
         print(f"[Agent4] Znaleziono {len(urls)} zdjęć dla zamówienia {order_id}")
         return urls
     except Exception as e:

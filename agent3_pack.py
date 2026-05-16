@@ -134,6 +134,13 @@ def create_pdf(order: dict, song_text: str, poem: str) -> bytes:
 def upload_pdf(pdf_bytes: bytes, order_id: str) -> str:
     """Wgrywa PDF do Supabase Storage i zwraca publiczny URL."""
     filename = f"{order_id}/prezent.pdf"
+
+    # Usuń stary plik jeśli istnieje (obsługa retry)
+    try:
+        supabase.storage.from_("orders").remove([filename])
+    except Exception:
+        pass
+
     supabase.storage.from_("orders").upload(
         path=filename,
         file=pdf_bytes,
