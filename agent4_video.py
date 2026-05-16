@@ -29,12 +29,105 @@ SHOTSTACK_API_KEY = os.environ.get("SHOTSTACK_API_KEY")
 SHOTSTACK_URL     = "https://api.shotstack.io/v1"
 
 # Czas wyświetlania każdego zdjęcia w sekundach
-PHOTO_DURATION = 3.0
-# Czas przejścia między zdjęciami
-TRANSITION_DURATION = 0.8
+TRANSITION_DURATION = 1.0   # płynne przejście 1 sekunda
 
 
-def get_photo_urls(order_id: str) -> list:
+def build_shotstack_timeline(
+    photo_urls: list,
+    audio_url:  str,
+    recipient_name: str,
+    occasion:   str,
+) -> dict:
+    """
+    Buduje timeline Shotstack.
+    Czas zdjęcia dobierany dynamicznie aby cały film trwał ~2 minuty.
+    """
+    clips = []
+    n = len(photo_urls)
+
+    # Dynamiczny czas: cel 120 sekund, min 8s, max 15s na zdjęcie
+    photo_duration = max(8.0, min(15.0, 120.0 / n))
+
+    for i, url in enumerate(photo_urls):
+        start = round(i * (photo_duration - TRANSITION_DURATION), 2)
+        clips.append({
+            "asset": {
+                "type": "image",
+                "src":  url,
+            },
+            "start":  start,
+            "length": photo_duration,
+            "fit":    "crop",     # poprawne kadrowanie bez rozciągania
+            "transition": {
+                "in":  "fade",
+                "out": "fade",
+            },
+        })
+
+    total_duration = n * (photo_duration - TRANSITION_DURATION) + TRANSITION_DURATION
+
+    # Imię na początku
+    clips.append({
+        "asset": {
+            "type":       "title",
+            "text":       recipient_name,
+            "style":      "minimal",
+            "color":      "#FFFFFF",
+            "size":       "x-large",
+            "position":   "center",
+            "background": "rgba(0,0,0,0.45)",
+        },
+        "start":  0.5,
+        "length": 4.0,
+        "transition": {"in": "fade", "out": "fade"},
+    })
+
+    clips.append({
+        "asset": {
+            "type":     "title",
+            "text":     occasion,
+            "style":    "minimal",
+            "color":    "#E8B95A",
+            "size":     "medium",
+            "position": "bottom",
+        },
+        "start":  0.5,
+        "length": 4.0,
+        "transition": {"in": "fade", "out": "fade"},
+    })
+
+    # Logo na końcu
+    clips.append({
+        "asset": {
+            "type":     "title",
+            "text":     "NutaNaZyczenie",
+            "style":    "minimal",
+            "color":    "#E8B95A",
+            "size":     "medium",
+            "position": "bottom",
+        },
+        "start":  max(0, total_duration - 4.0),
+        "length": 3.5,
+        "transition": {"in": "fade", "out": "fade"},
+    })
+
+    return {
+        "timeline": {
+            "soundtrack": {
+                "src":    audio_url,
+                "effect": "fadeOut",
+                "volume": 1.0,
+            },
+            "background": "#000000",
+            "tracks":     [{"clips": clips}],
+        },
+        "output": {
+            "format":     "mp4",
+            "resolution": "1080",   # Full HD
+            "fps":        25,
+            "quality":    "high",
+        },
+    }
     """
     Pobiera tymczasowe linki do zdjęć klientów z Supabase Storage.
     Używa signed URLs (ważne 1h) bo bucket 'photos' jest prywatny.
@@ -55,109 +148,6 @@ def get_photo_urls(order_id: str) -> list:
         return urls
     except Exception as e:
         raise Exception(f"Błąd pobierania zdjęć z Supabase: {e}")
-
-
-def build_shotstack_timeline(
-    photo_urls: list,
-    audio_url:  str,
-    recipient_name: str,
-    occasion:   str,
-) -> dict:
-    """
-    Buduje obiekt timeline dla Shotstack API.
-    Tworzy animowany slideshow ze zdjęć z podkładem muzycznym i tekstem.
-    """
-    clips = []
-
-    # ── Zdjęcia w tle ────────────────────────────────────────
-    for i, url in enumerate(photo_urls):
-        start = i * (PHOTO_DURATION - TRANSITION_DURATION)
-        clips.append({
-            "asset": {
-                "type":    "image",
-                "src":     url,
-                "crop":    {"top": 0, "bottom": 0, "left": 0, "right": 0},
-            },
-            "start":    round(start, 2),
-            "length":   PHOTO_DURATION,
-            "fit":      "cover",
-            "scale":    1.05,
-            "effect":   "zoomIn" if i % 2 == 0 else "zoomOut",
-            "transition": {
-                "in":  "fade",
-                "out": "fade",
-            },
-        })
-
-    total_duration = len(photo_urls) * (PHOTO_DURATION - TRANSITION_DURATION) + TRANSITION_DURATION
-
-    # ── Tekst — imię i okazja na początku ────────────────────
-    clips.append({
-        "asset": {
-            "type":     "title",
-            "text":     recipient_name,
-            "style":    "minimal",
-            "color":    "#FFFFFF",
-            "size":     "x-large",
-            "position": "center",
-            "offset":   {"x": 0, "y": 0.1},
-            "background": "rgba(0,0,0,0.3)",
-        },
-        "start":  0.5,
-        "length": 3.0,
-        "transition": {"in": "fade", "out": "fade"},
-    })
-
-    clips.append({
-        "asset": {
-            "type":     "title",
-            "text":     occasion,
-            "style":    "minimal",
-            "color":    "#E8B95A",
-            "size":     "medium",
-            "position": "center",
-            "offset":   {"x": 0, "y": -0.1},
-        },
-        "start":  0.5,
-        "length": 3.0,
-        "transition": {"in": "fade", "out": "fade"},
-    })
-
-    # Tekst końcowy
-    clips.append({
-        "asset": {
-            "type":     "title",
-            "text":     "NutaNaŻyczenie",
-            "style":    "minimal",
-            "color":    "#E8B95A",
-            "size":     "medium",
-            "position": "bottom",
-        },
-        "start":  max(0, total_duration - 3.0),
-        "length": 2.5,
-        "transition": {"in": "fade", "out": "fade"},
-    })
-
-    # ── Podkład muzyczny ─────────────────────────────────────
-    soundtrack = {
-        "src":    audio_url,
-        "effect": "fadeOut",
-        "volume": 1.0,
-    }
-
-    return {
-        "timeline": {
-            "soundtrack": soundtrack,
-            "background": "#000000",
-            "tracks":     [{"clips": clips}],
-        },
-        "output": {
-            "format":     "mp4",
-            "resolution": "hd",    # 1280x720
-            "fps":        25,
-            "quality":    "high",
-        },
-    }
 
 
 def render_video(timeline: dict) -> str:

@@ -19,13 +19,13 @@ SUNO_API_KEY  = os.environ.get("SUNO_API_KEY")
 SUNOR_API_URL = "https://sunor.cc/api/v1"
 
 STYLE_MAP = {
-    "pop":       "polish pop, upbeat, catchy, modern",
-    "ballada":   "polish ballad, emotional, piano, slow tempo",
-    "hip-hop":   "polish hip hop, rap, boom bap, 95 bpm",
-    "folk":      "polish folk, accordion, biesiadna, festive, 130 bpm",
-    "rock":      "polish rock, guitar, energetic, powerful",
-    "jazz":      "polish jazz, saxophone, smooth, relaxed",
-    "klasyczna": "classical, orchestral, elegant, emotional",
+    "pop":       "pop, upbeat, catchy, modern, radio hit",
+    "ballada":   "ballad, emotional, piano, slow tempo, heartfelt",
+    "hip-hop":   "hip hop, rap, boom bap, 95 bpm, rhythmic",
+    "folk":      "folk, accordion, festive, upbeat 130 bpm, cheerful",
+    "rock":      "rock, guitar, energetic, powerful, anthemic",
+    "jazz":      "jazz, saxophone, smooth, relaxed, elegant",
+    "klasyczna": "classical, orchestral, elegant, emotional, cinematic",
 }
 
 OCCASION_MOOD = {
@@ -48,7 +48,7 @@ def get_style_prompt(music_style: str, occasion: str, package_type: str) -> str:
             mood = val
             break
     duration = "2.5 to 3 minute song" if package_type == "premium" else "2 minute song"
-    return f"{base}, {mood}, {duration}, Polish vocals, high quality"
+    return f"{base}, {mood}, {duration}, Polish language lyrics, professional production"
 
 
 def generate_and_poll(song_text: str, style: str, title: str) -> dict:

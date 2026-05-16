@@ -150,14 +150,16 @@ def create_qr_card(
     story = [
         # Złota linia na górze
         gold_line(),
-        Spacer(1, 4*mm),
-        # Imię i okazja
+        Spacer(1, 5*mm),
+        # Imię
         Paragraph(recipient_name, s_name),
+        Spacer(1, 4*mm),
+        # Okazja — wyraźny odstęp od imienia
         Paragraph(occasion, s_occasion),
-        Spacer(1, 2*mm),
+        Spacer(1, 3*mm),
         # QR kod wyśrodkowany
         qr_image,
-        Spacer(1, 3*mm),
+        Spacer(1, 4*mm),
         # Tekst zapraszający
         Paragraph(headline, s_headline),
         Paragraph(subtext, s_subtext),

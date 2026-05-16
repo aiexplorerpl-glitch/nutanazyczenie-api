@@ -110,16 +110,17 @@ def generate_poem(order: dict) -> str:
 
 Okazja: {order["occasion"]}
 
-ZASADY:
+ŚCISŁE ZASADY:
 1. Dokładnie 4 linijki — nie więcej, nie mniej
-2. Musi się rymować (ABAB lub AABB)
+2. Rymuj ostatnie słowa (ABAB lub AABB)
 3. Zawiera imię {order["recipient_name"]}
 4. Nawiązuje do okazji: {order["occasion"]}
-5. Pisz PO POLSKU — używaj naturalnych, poprawnych gramatycznie zwrotów
-6. Każda linijka musi być sensownym, pełnym zdaniem lub frazą
-7. Sprawdź że każde słowo pasuje do kontekstu i ma sens w tym miejscu
-8. NIE używaj słów które nie pasują do zdania (np. "barwny, wiosny" jest błędem)
-9. Tylko 4 linijki — bez tytułu, bez komentarzy"""
+5. Pisz wyłącznie PO POLSKU
+6. KAŻDA linijka musi być gramatycznie poprawnym, sensownym zdaniem lub frazą
+7. ZAKAZ używania słów które nie pasują gramatycznie do reszty zdania
+8. Przed napisaniem sprawdź każdą linijkę czy ma sens — jeśli nie, przepisz ją
+9. Rym musi być naturalny — nie zmuszaj słów które nie pasują
+10. Tylko 4 linijki — zero tytułu, zero komentarzy, zero wyjaśnień"""
 
     response = client.chat.completions.create(
         model="gpt-4o",
