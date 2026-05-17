@@ -331,10 +331,10 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
       </p>
       <p style="margin:0;color:#5A3A10;font-size:0.85rem;line-height:1.65;
                 font-family:Arial,sans-serif;">
-        W załączniku znajdziesz <strong>eleganką kartkę z kodem QR</strong>
+        W załączniku znajdziesz <strong>elegancką kartkę z kodem QR</strong>
         — wydrukuj ją i wręcz jako fizyczny prezent. Wystarczy że obdarowana
-        osoba zeskanuje telefonem kod i natychmiast usłyszy swoją piosenkę
-        {'lub obejrzy film' if video_url else ''}. ✨
+        osoba zeskanuje telefonem kod i natychmiast
+        {'<strong>obejrzy film z piosenką</strong>' if video_url else '<strong>usłyszy swoją piosenkę</strong>'}. ✨
       </p>
     </div>
 
