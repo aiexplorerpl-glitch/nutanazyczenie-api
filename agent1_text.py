@@ -140,20 +140,65 @@ Okazja: {order["occasion"]}
     return poem
 
 
+def check_content_safety(order: dict) -> tuple:
+    """
+    Sprawdza czy dane zamówienia nie zawierają treści obraźliwych,
+    wulgarnych lub nieodpowiednich. Zwraca (is_safe, reason).
+    """
+    text_to_check = f"""
+    Opis osoby: {order.get('person_desc', '')}
+    Treść piosenki: {order.get('content_desc', '')}
+    Okazja: {order.get('occasion', '')}
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Jesteś moderatorem treści. Sprawdź czy podany tekst zawiera "
+                    "treści nieodpowiednie: wulgaryzmy, mowę nienawiści, treści seksualne, "
+                    "obraźliwe słowa, groźby, dyskryminację lub inne nieodpowiednie treści. "
+                    "Odpowiedz TYLKO: SAFE jeśli treść jest odpowiednia, "
+                    "lub UNSAFE: [powód] jeśli nie jest."
+                ),
+            },
+            {"role": "user", "content": text_to_check},
+        ],
+        temperature=0,
+        max_tokens=100,
+    )
+
+    result = response.choices[0].message.content.strip()
+    if result.startswith("SAFE"):
+        return True, None
+    else:
+        reason = result.replace("UNSAFE:", "").strip()
+        return False, reason
+
+
 def run(order: dict) -> dict:
     """
     Główna funkcja Agenta 1 — uruchamiana przez main.py.
-
-    Args:
-        order: dane zamówienia (dict z Supabase)
-
-    Returns:
-        dict: {success, song_text, poem, error}
     """
     try:
+        # Najpierw sprawdzamy bezpieczeństwo treści
+        is_safe, reason = check_content_safety(order)
+        if not is_safe:
+            print(f"[Agent1] ⛔ Treść zablokowana: {reason}")
+            return {
+                "success":    False,
+                "song_text":  None,
+                "poem":       None,
+                "error":      f"CONTENT_BLOCKED: {reason}",
+                "blocked":    True,
+            }
+
         song_text = generate_song_text(order)
-        poem = generate_poem(order)
+        poem      = generate_poem(order)
         return {"success": True, "song_text": song_text, "poem": poem}
+
     except Exception as e:
         print(f"[Agent1] ❌ Błąd: {e}")
         return {"success": False, "song_text": None, "poem": None, "error": str(e)}

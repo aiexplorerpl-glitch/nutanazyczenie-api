@@ -25,7 +25,7 @@ resend.api_key  = os.environ.get("RESEND_API_KEY")
 FROM_EMAIL      = os.environ.get("FROM_EMAIL",    "zamowienia@nutanazyczenie.pl")
 CONTACT_EMAIL   = os.environ.get("CONTACT_EMAIL", "kontakt@nutanazyczenie.pl")
 
-PHOTOS_DELETE_HOURS = 24        # zdjęcia klientów usuwane po 24h (RODO)
+PHOTOS_DELETE_HOURS = 48        # zdjęcia klientów usuwane po 48h (RODO)
 FILES_DELETE_DAYS   = 60        # MP3/PDF/wideo dostępne przez 60 dni
 CORRECTION_WINDOW_HOURS = 24   # poprawki tylko przez 24h od dostarczenia
 

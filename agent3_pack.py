@@ -159,8 +159,21 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
     Wysyła email z linkami do pobrania.
     Zawiera podgląd wiersza inline, info o poprawce i nowe adresy email.
     """
-    recipient_email = order.get("recipient_email") or order["buyer_email"]
-    is_direct       = bool(order.get("recipient_email"))
+    # Link do formularza poprawki — tylko pakiet wideo i premium
+    BASE_URL = os.environ.get("BASE_URL", "https://nutanazyczenie.pl")
+    correction_link_block = ""
+    if package_type in ("wideo", "premium"):
+        correction_link_block = f"""
+    <div style="text-align:center;margin-top:20px;padding-top:20px;
+                border-top:1px dashed rgba(201,150,58,0.3);">
+      <a href="{BASE_URL}/poprawka?order={order['id']}"
+         style="color:var(--gold,#C9963A);font-size:0.85rem;font-family:Arial,sans-serif;">
+        ✏️ Chcesz coś zmienić? Zgłoś bezpłatną poprawkę →
+      </a>
+      <p style="font-size:0.75rem;color:#B8A89A;margin-top:6px;font-family:Arial,sans-serif;">
+        Masz 24 godziny od otrzymania emaila.
+      </p>
+    </div>"""
     package_type    = order.get("package_type", "piosenka")
 
     # Poprawki: tylko pakiet wideo (1 poprawka) i premium (2 poprawki), w ciągu 24h
@@ -328,6 +341,7 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
     <div style="background:#F0F8FF;border-radius:12px;padding:16px 20px;margin-bottom:24px;">
       <p style="margin:0;color:#1A3A5C;font-size:0.88rem;line-height:1.6;font-family:Arial,sans-serif;">
         {correction_block}
+      {correction_link_block}
       </p>
     </div>
 
