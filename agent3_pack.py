@@ -181,10 +181,11 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
         correction_block = f"""
     <div style="background:#EBF4FF;border-left:4px solid #4A90D9;border-radius:0 10px 10px 0;
                 padding:14px 18px;margin-bottom:20px;">
-      <p style="margin:0;color:#1A3A5C;font-size:0.88rem;font-family:Arial,sans-serif;">
+      <p style="margin:0;color:#1A3A5C;font-size:0.88rem;font-family:Arial,sans-serif;line-height:1.7;">
         💡 <strong>Masz 2 bezpłatne poprawki</strong> — jeśli chcesz zmienić coś
-        w tekście lub muzyce, napisz do nas <strong>w ciągu 24 godzin</strong>
-        od otrzymania zamówienia.<br>
+        w tekście lub muzyce, masz na to <strong>24 godziny</strong> od otrzymania
+        tego emaila.<br>
+        Skorzystaj z formularza lub napisz bezpośrednio na
         <a href="mailto:{FROM_EMAIL}" style="color:#4A90D9;">{FROM_EMAIL}</a>
       </p>
     </div>"""
@@ -192,10 +193,11 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
         correction_block = f"""
     <div style="background:#EBF4FF;border-left:4px solid #4A90D9;border-radius:0 10px 10px 0;
                 padding:14px 18px;margin-bottom:20px;">
-      <p style="margin:0;color:#1A3A5C;font-size:0.88rem;font-family:Arial,sans-serif;">
+      <p style="margin:0;color:#1A3A5C;font-size:0.88rem;font-family:Arial,sans-serif;line-height:1.7;">
         💡 <strong>Masz 1 bezpłatną poprawkę</strong> — jeśli chcesz zmienić coś
-        w tekście lub muzyce, napisz do nas <strong>w ciągu 24 godzin</strong>
-        od otrzymania zamówienia.<br>
+        w tekście lub muzyce, masz na to <strong>24 godziny</strong> od otrzymania
+        tego emaila.<br>
+        Skorzystaj z formularza lub napisz bezpośrednio na
         <a href="mailto:{FROM_EMAIL}" style="color:#4A90D9;">{FROM_EMAIL}</a>
       </p>
     </div>"""
@@ -351,9 +353,17 @@ def send_email(order: dict, audio_url: str, pdf_url: str, audio_ext: str,
     </p>
 
     <p style="color:#B8A89A;font-size:0.78rem;line-height:1.6;
-              font-family:Arial,sans-serif;margin-top:16px;">
-      ⏳ Linki do pobrania i kod QR są aktywne przez <strong>60 dni</strong>
-      od daty zamówienia. Pobierz pliki na swój dysk przed upływem tego czasu.
+              font-family:Arial,sans-serif;margin-top:16px;text-align:center;">
+      ⏳ Linki aktywne przez <strong style="color:#7A6A5A;">60 dni</strong> od daty zamówienia.
+    </p>
+
+    <p style="color:#B8A89A;font-size:0.78rem;line-height:1.6;
+              font-family:Arial,sans-serif;margin-top:10px;text-align:center;">
+      Spodobało Ci się? 🌟
+      <a href="{os.environ.get('BASE_URL','https://nutanazyczenie.pl')}/opinia"
+         style="color:#C9963A;text-decoration:none;font-weight:500;">
+        Wystaw opinię — zajmie Ci 30 sekund!
+      </a>
     </p>
   </div>
 
